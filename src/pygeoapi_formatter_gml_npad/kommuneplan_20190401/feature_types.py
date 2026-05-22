@@ -22,7 +22,26 @@ from ..mapping import (
     KVALITET,
     UTNYTTING,
     FeatureTypeConfig,
+    SchemaInfo,
 )
+
+SCHEMA_INFO = SchemaInfo(
+    namespace=(
+        "http://skjema.geonorge.no/SOSI/produktspesifikasjon/Kommuneplan/20190401"
+    ),
+    schema_location=(
+        "https://skjema.geonorge.no/SOSI/produktspesifikasjon/"
+        "Kommuneplan/20190401/kommuneplan_20190401_filprod.xsd"
+    ),
+    prefix="app",
+)
+"""SOSI GML schema metadata for Kommuneplan (20190401).
+
+The formatter's class-level ``SCHEMA_NAMESPACE`` / ``SCHEMA_LOCATION`` /
+``SCHEMA_PREFIX`` are derived from this. Re-exported from the subpackage
+``__init__`` so external consumers (e.g. ``gml-export``) can import it
+without depending on the formatter class.
+"""
 
 # --- KpOmråde extends Fellesegenskaper_PlanområdeType (unique base type) ---
 

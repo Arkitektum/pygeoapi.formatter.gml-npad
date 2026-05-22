@@ -4,6 +4,7 @@ from pygeoapi.formatter.base import FormatterGenericError
 from pygeoapi_formatter_gml_npad.reguleringsplan_20190401 import (
     FEATURE_TYPES,
     FEATURE_TYPES_BY_VIEW,
+    SCHEMA_INFO,
     ReguleringsplanFormatter,
 )
 
@@ -27,6 +28,14 @@ def test_schema_constants():
         "Reguleringsplan/20190401/reguleringsplan_20190401_filprod.xsd"
     )
     assert ReguleringsplanFormatter.SCHEMA_PREFIX == "app"
+
+
+def test_schema_info_module_export():
+    # SCHEMA_INFO is exported for external consumers (e.g. gml-export) and
+    # must stay in sync with the formatter class's derived constants.
+    assert SCHEMA_INFO.namespace == ReguleringsplanFormatter.SCHEMA_NAMESPACE
+    assert SCHEMA_INFO.schema_location == ReguleringsplanFormatter.SCHEMA_LOCATION
+    assert SCHEMA_INFO.prefix == ReguleringsplanFormatter.SCHEMA_PREFIX
 
 
 def test_f_and_mimetype_overrides():

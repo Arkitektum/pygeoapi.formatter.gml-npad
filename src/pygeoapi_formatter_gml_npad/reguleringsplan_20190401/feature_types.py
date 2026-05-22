@@ -26,7 +26,26 @@ from ..mapping import (
     SAKSNUMMER,
     UTNYTTING,
     FeatureTypeConfig,
+    SchemaInfo,
 )
+
+SCHEMA_INFO = SchemaInfo(
+    namespace=(
+        "http://skjema.geonorge.no/SOSI/produktspesifikasjon/Reguleringsplan/20190401"
+    ),
+    schema_location=(
+        "https://skjema.geonorge.no/SOSI/produktspesifikasjon/"
+        "Reguleringsplan/20190401/reguleringsplan_20190401_filprod.xsd"
+    ),
+    prefix="app",
+)
+"""SOSI GML schema metadata for Reguleringsplan (20190401).
+
+The formatter's class-level ``SCHEMA_NAMESPACE`` / ``SCHEMA_LOCATION`` /
+``SCHEMA_PREFIX`` are derived from this. Re-exported from the subpackage
+``__init__`` so external consumers (e.g. ``gml-export``) can import it
+without depending on the formatter class.
+"""
 
 # --- Reguleringsplan (Rp*) feature types ---
 

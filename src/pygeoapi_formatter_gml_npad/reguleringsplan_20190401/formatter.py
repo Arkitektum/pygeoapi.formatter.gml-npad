@@ -3,6 +3,7 @@
 from pygeoapi_formatter_gml_npad.base import _GMLBase
 from pygeoapi_formatter_gml_npad.reguleringsplan_20190401.feature_types import (
     FEATURE_TYPES,
+    SCHEMA_INFO,
 )
 
 
@@ -30,14 +31,9 @@ class ReguleringsplanFormatter(_GMLBase):
     ``_derived_point_gml``).
     """
 
-    SCHEMA_NAMESPACE = (
-        "http://skjema.geonorge.no/SOSI/produktspesifikasjon/Reguleringsplan/20190401"
-    )
-    SCHEMA_LOCATION = (
-        "https://skjema.geonorge.no/SOSI/produktspesifikasjon/"
-        "Reguleringsplan/20190401/reguleringsplan_20190401_filprod.xsd"
-    )
-    SCHEMA_PREFIX = "app"
+    SCHEMA_NAMESPACE = SCHEMA_INFO.namespace
+    SCHEMA_LOCATION = SCHEMA_INFO.schema_location
+    SCHEMA_PREFIX = SCHEMA_INFO.prefix
 
     FEATURE_TYPES = FEATURE_TYPES
     _NAME = "gml-reguleringsplan-20190401"
