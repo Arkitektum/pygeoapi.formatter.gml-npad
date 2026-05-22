@@ -1,6 +1,9 @@
 """Kommuneplan (SOSI product spec, 20190401) output formatter."""
 
 from pygeoapi_formatter_gml_npad.base import _GMLBase
+from pygeoapi_formatter_gml_npad.kommuneplan_20190401.feature_types import (
+    FEATURE_TYPES,
+)
 
 
 class KommuneplanFormatter(_GMLBase):
@@ -10,13 +13,23 @@ class KommuneplanFormatter(_GMLBase):
     ``kommunedelplaner``, ``kommuneplanforslag`` and
     ``kommunedelplanforslag`` database families.
 
-    ``f`` and ``mimetype`` can be overridden per-instance via
-    ``formatter_def`` to support multi-version registration on a single
-    collection during product-spec transition windows.
-    """
+    Configuration in ``formatter_def``:
 
-    DEFAULT_F = "gml"
-    DEFAULT_MIMETYPE = "application/gml+xml"
+    - ``feature_type`` (required): SOSI feature type name, e.g.
+      ``KpOmråde``. See ``FEATURE_TYPES`` for the full list.
+    - ``f`` (optional): URL ``?f=`` value. Default ``"gml"``.
+    - ``mimetype`` (optional): response Content-Type. Default
+      ``"application/gml+xml"``.
+    - ``validate`` (optional): if True (default), validate the first
+      feature of each response against the XSD. Requires network access
+      to skjema.geonorge.no on the first request (cached afterward).
+
+    Provider contract: each feature's ``properties`` dict must use the
+    dot-separated DB column names from the materialized views (e.g.
+    ``identifikasjon.lokalId``, ``arealplanId.kommunenummer``) and carry
+    pre-rendered geometry GML in ``_geometry_gml`` (and optionally
+    ``_derived_point_gml``).
+    """
 
     SCHEMA_NAMESPACE = (
         "http://skjema.geonorge.no/SOSI/produktspesifikasjon/Kommuneplan/20190401"
@@ -27,19 +40,8 @@ class KommuneplanFormatter(_GMLBase):
     )
     SCHEMA_PREFIX = "app"
 
-    def __init__(self, formatter_def: dict):
-        f = formatter_def.get("f", self.DEFAULT_F)
-        mimetype = formatter_def.get("mimetype", self.DEFAULT_MIMETYPE)
-
-        super().__init__({"name": "gml-kommuneplan-20190401", "attachment": True})
-        self.f = f
-        self.mimetype = mimetype
-        self.extension = "gml"
-
-    def write(self, options: dict = {}, data: dict | None = None) -> str:
-        raise NotImplementedError(
-            "Kommuneplan 20190401 GML serialization is not yet implemented."
-        )
+    FEATURE_TYPES = FEATURE_TYPES
+    _NAME = "gml-kommuneplan-20190401"
 
     def __repr__(self) -> str:
         return f"<KommuneplanFormatter> {self.name}"

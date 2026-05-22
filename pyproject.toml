@@ -8,12 +8,14 @@ license = "MIT"
 authors = [{ name = "Arkitektum AS" }]
 dependencies = [
     "pygeoapi",
+    "lxml>=5.0.0",
 ]
 
 [project.optional-dependencies]
 dev = [
     "pytest",
     "ruff",
+    "types-lxml",
 ]
 
 [build-system]
