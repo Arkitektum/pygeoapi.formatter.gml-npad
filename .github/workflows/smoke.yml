@@ -1,0 +1,55 @@
+name: Smoke
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgis/postgis:16-3.4-alpine
+        env:
+          POSTGRES_USER: smoke
+          POSTGRES_PASSWORD: smoke
+          POSTGRES_DB: smoke
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      SMOKE_DB_HOST: localhost
+      SMOKE_DB_PORT: 5432
+      SMOKE_DB_NAME: smoke
+      SMOKE_DB_USER: smoke
+      SMOKE_DB_PASSWORD: smoke
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install GDAL system libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgdal-dev gdal-bin
+
+      - name: Install smoke dependencies
+        run: |
+          pip install -e '.[smoke]'
+          pip install "gdal==$(gdal-config --version)"
+
+      - name: Run smoke tests
+        run: pytest -m smoke -v

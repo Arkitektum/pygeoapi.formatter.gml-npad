@@ -17,6 +17,16 @@ dev = [
     "ruff",
     "types-lxml",
 ]
+smoke = [
+    "pytest",
+    # psycopg3 is what the smoke conftest uses for direct schema/fixture loading.
+    "psycopg[binary]>=3.2.9",
+    # psycopg2-binary is what SQLAlchemy's default postgres dialect reaches for;
+    # postgresql_ext builds its engine via that dialect. Matches the pattern in
+    # pygeoapi.plandata's Dockerfile, which also installs both side by side.
+    "psycopg2-binary>=2.9",
+    "postgresql_ext @ git+https://github.com/Arkitektum/pygeoapi.provider.postgresql_ext@v0.3.1",
+]
 
 [build-system]
 requires = ["setuptools>=80.0"]
@@ -31,5 +41,18 @@ pygeoapi_formatter_gml_npad = ["py.typed"]
 [tool.ruff]
 target-version = "py312"
 
+[tool.ty.src]
+# The smoke tests import psycopg + postgresql_ext, which aren't installed
+# in the default dev environment. Skip them from static analysis; the smoke
+# CI job installs the smoke extras and runs pytest-side import checks via
+# pytest.importorskip.
+exclude = ["tests/smoke/**"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "smoke: integration smoke test, requires running postgres (run with `pytest -m smoke`)",
+]
+# Default runs exclude smoke tests; they need a live postgres which most
+# developer environments don't have. Opt in with `pytest -m smoke`.
+addopts = "-m 'not smoke'"
