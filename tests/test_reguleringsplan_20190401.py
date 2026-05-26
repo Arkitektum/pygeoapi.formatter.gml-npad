@@ -121,3 +121,36 @@ def test_write_serializes_minimal_feature():
     assert 'gml:id="rpomrade.1"' in out
     assert "<app:lokalId>abc-123</app:lokalId>" in out
     assert "<app:plantype>35</app:plantype>" in out
+
+
+def test_nested_group_emits_default_value_when_all_source_columns_null():
+    """Regression: a NestedGroup with ``default_values`` should still emit
+    even when every source column for that group is NULL/missing in the
+    row. Previously, ``_write_nested_group`` / ``_append_nested_group_str``
+    short-circuited on ``has_value`` *before* consulting ``default_values``,
+    which silently dropped defaulted-only elements that the XSD considers
+    required.
+
+    Exercised here via ``RpRegulertHøyde``'s ``HOYDEFRAPLANBESTEMMELSE``
+    group, which defines a default for ``høydereferansesystem``.
+    """
+    fmt = ReguleringsplanFormatter(
+        {"feature_type": "RpRegulertHøyde", "validate": False}
+    )
+    feature = {
+        "type": "Feature",
+        "properties": {
+            # Required identifikasjon group
+            "identifikasjon.lokalId": "rpregulerthoyde-1",
+            "identifikasjon.navnerom": "ns",
+            "identifikasjon.versjonId": "1",
+            # All høydefraplanbestemmelse.* columns deliberately omitted.
+            # The group should still appear thanks to default_values on
+            # høydereferansesystem.
+        },
+    }
+    out = fmt.write({}, {"type": "FeatureCollection", "features": [feature]})
+
+    assert "<app:høydefraplanbestemmelse>" in out
+    assert "<app:HøydeFraPlanbestemmelse>" in out
+    assert "<app:høydereferansesystem>other: ukjent</app:høydereferansesystem>" in out

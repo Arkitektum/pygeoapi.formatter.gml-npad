@@ -199,7 +199,13 @@ def _write_nested_group(
         _write_repeating_nested_group(parent, group, row, app_ns)
         return
 
-    has_value = any(row.get(db_col) is not None for db_col in group.columns)
+    # A defaulted column counts toward "the group has value" — otherwise
+    # groups whose source columns are all NULL get skipped here even when
+    # default_values would have populated them inside the loop below.
+    has_value = any(
+        row.get(db_col) is not None or db_col in group.default_values
+        for db_col in group.columns
+    )
     if not has_value:
         return
 
@@ -331,7 +337,13 @@ def _append_nested_group_str(
         _append_repeating_nested_group_str(parts, group, row, prefix)
         return
 
-    has_value = any(row.get(db_col) is not None for db_col in group.columns)
+    # Mirror of _write_nested_group: defaulted columns count toward
+    # "the group has value", so groups that exist solely to emit
+    # defaults aren't dropped at the early-return.
+    has_value = any(
+        row.get(db_col) is not None or db_col in group.default_values
+        for db_col in group.columns
+    )
     if not has_value:
         return
 
