@@ -150,3 +150,35 @@ def test_kp_full_chain_serializes_to_gml(kp_provider_def):
     # KP: DB geom column is `geometri`, GML element is `område`
     assert "<app:område><gml:Polygon" in gml
     assert 'gml:id="kpomrade.1.geom"' in gml
+
+
+def test_rp_grense_full_chain_validates(rpformalgrense_provider_def):
+    """Grense (boundary) chain: representative of all 29 grense types,
+    which share one XSD shape (Fellesegenskaper_LinjerOgPunkt base + a
+    single `grense` curve element, no arealplanId). validate=True is the
+    point — element-order mistakes in the grense configs would only
+    surface via XSD validation."""
+    fc = _query_features(rpformalgrense_provider_def)
+
+    fmt = ReguleringsplanFormatter({"feature_type": "RpFormålGrense", "validate": True})
+    gml = fmt.write({}, fc)
+
+    _assert_envelope(gml, ReguleringsplanFormatter.SCHEMA_NAMESPACE, feature_count=1)
+
+    assert "<app:RpFormålGrense " in gml
+    assert 'gml:id="rpformalgrense.1"' in gml
+    assert "<app:lokalId>rpfg-smoke-001</app:lokalId>" in gml
+
+    # kvalitet nested group (grense types carry it; no arealplanId)
+    assert "<app:kvalitet>" in gml
+    assert "<app:målemetode>24</app:målemetode>" in gml
+    assert "<app:arealplanId>" not in gml
+
+    # Line geometry through gml_passthrough into <app:grense>. With
+    # gml_options: 1 (curve-aware, the flag-4-drop default) PostGIS emits
+    # <gml:Curve>/<gml:LineStringSegment> rather than <gml:LineString> —
+    # both satisfy gml:CurvePropertyType, but Curve is what production
+    # produces.
+    assert "<app:grense><gml:Curve" in gml
+    assert "<gml:LineStringSegment>" in gml
+    assert 'gml:id="rpformalgrense.1.geom"' in gml

@@ -68,8 +68,9 @@ Each collection serves one SOSI feature type (`RpOmråde`,
 `KpArealformålOmråde`, etc.). The formatter is told via the
 `feature_type` field on the YAML registration. The full list of
 supported names lives in each subpackage's
-`feature_types.FEATURE_TYPES` dict (22 for Reguleringsplan, 20 for
-Kommuneplan).
+`feature_types.FEATURE_TYPES` dict (38 for Reguleringsplan, 33 for
+Kommuneplan — including the 29 grense boundary types, e.g.
+`RpFormålGrense`, `KpGrense`).
 
 ### Single-version collection
 

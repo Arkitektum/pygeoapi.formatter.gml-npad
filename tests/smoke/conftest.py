@@ -98,3 +98,8 @@ def rp_provider_def() -> dict:
 @pytest.fixture(scope="session")
 def kp_provider_def() -> dict:
     return _provider_def("kpomrade_mv", "geometri")
+
+
+@pytest.fixture(scope="session")
+def rpformalgrense_provider_def() -> dict:
+    return _provider_def("rpformalgrense_grense_mv", "grense")

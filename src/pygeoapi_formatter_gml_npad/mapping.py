@@ -327,3 +327,15 @@ KP_LINJER_OG_PUNKT_PREFIX: list[str] = [
     "kopidata",
     "arealplanId",
 ]
+
+# Fellesegenskaper_LinjerOgPunktType base sequence — used by all grense
+# (boundary) types, which extend this abstract base DIRECTLY (unlike
+# line/point types, which go via LinjerOgPunktType and therefore also
+# carry arealplanId + vertikalnivå). Identical in the RP and KP XSDs.
+GRENSE_PREFIX: list[str] = [
+    "identifikasjon",
+    "førsteDigitaliseringsdato",
+    "oppdateringsdato",
+    "kvalitet",
+    "kopidata",
+]

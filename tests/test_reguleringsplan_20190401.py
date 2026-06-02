@@ -54,7 +54,8 @@ def test_f_and_mimetype_overrides():
 
 
 def test_feature_types_registry_covers_known_types():
-    # Spot-check a representative slice of the 22 RP feature types
+    # Spot-check a representative slice of the 38 RP feature types
+    # (22 original + 16 grense)
     expected = {
         "RpOmråde",
         "RpArealformålOmråde",
@@ -62,9 +63,60 @@ def test_feature_types_registry_covers_known_types():
         "RpPåskrift",
         "RbBevaringOmråde",
         "PblMidlByggAnleggOmråde",
+        "RpGrense",
+        "RpFormålGrense",
+        "PblMidlByggAnleggGrense",
     }
     assert expected.issubset(FEATURE_TYPES.keys())
-    assert len(FEATURE_TYPES) == 22
+    assert len(FEATURE_TYPES) == 38
+
+
+def test_grense_types_structure():
+    """All grense types share one XSD shape: Fellesegenskaper_LinjerOgPunkt
+    base sequence + a single `grense` element, and — unlike the line/point
+    types — carry NO arealplanId group."""
+    grense_types = [fc for name, fc in FEATURE_TYPES.items() if name.endswith("Grense")]
+    assert len(grense_types) == 16
+
+    from pygeoapi_formatter_gml_npad.mapping import GRENSE_PREFIX
+
+    for fc in grense_types:
+        assert fc.element_order == GRENSE_PREFIX + ["grense"], fc.feature_type_name
+        assert fc.geometry_gml_name == "grense", fc.feature_type_name
+        assert fc.geometry_column == "grense", fc.feature_type_name
+        assert all(g.gml_parent != "arealplanId" for g in fc.nested_groups), (
+            fc.feature_type_name
+        )
+        assert fc.view_name.endswith("_grense_mv"), fc.feature_type_name
+        assert fc.id_prefix == fc.view_name.removesuffix("_grense_mv"), (
+            fc.feature_type_name
+        )
+
+
+def test_write_serializes_minimal_grense_feature():
+    fmt = ReguleringsplanFormatter(
+        {"feature_type": "RpFormålGrense", "validate": False}
+    )
+    feature = {
+        "type": "Feature",
+        "properties": {
+            "identifikasjon.lokalId": "grense-abc",
+            "identifikasjon.navnerom": "ns",
+            "identifikasjon.versjonId": "1",
+            "_geometry_gml": (
+                '<gml:LineString srsName="urn:ogc:def:crs:EPSG::25833">'
+                "<gml:posList>597000 6643000 598000 6644000</gml:posList>"
+                "</gml:LineString>"
+            ),
+        },
+    }
+    out = fmt.write({}, {"type": "FeatureCollection", "features": [feature]})
+
+    assert "<app:RpFormålGrense " in out
+    assert 'gml:id="rpformalgrense.1"' in out
+    assert "<app:lokalId>grense-abc</app:lokalId>" in out
+    assert "<app:grense><gml:LineString" in out
+    assert 'gml:id="rpformalgrense.1.geom"' in out
 
 
 def test_feature_types_by_view_index():

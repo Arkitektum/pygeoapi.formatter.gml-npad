@@ -24,6 +24,7 @@ CREATE EXTENSION IF NOT EXISTS postgis;
 
 DROP TABLE IF EXISTS rpomrade_omrade_mv CASCADE;
 DROP TABLE IF EXISTS kpomrade_mv CASCADE;
+DROP TABLE IF EXISTS rpformalgrense_grense_mv CASCADE;
 
 -- Reguleringsplan: RpOmråde
 CREATE TABLE rpomrade_omrade_mv (
@@ -44,6 +45,27 @@ CREATE TABLE rpomrade_omrade_mv (
     plannavn                           text,
     planbestemmelse                    text,
     lovreferanse                       text
+);
+
+-- Reguleringsplan: RpFormålGrense — representative of all 29 grense
+-- (boundary) types, which share one XSD shape: Fellesegenskaper_LinjerOgPunkt
+-- base sequence (identifikasjon / dates / kvalitet / kopidata, NO arealplanId)
+-- plus a single `grense` curve element.
+CREATE TABLE rpformalgrense_grense_mv (
+    objid                              bigint PRIMARY KEY,
+    "grense"                           geometry(LineString, 25833),
+    "identifikasjon.lokalId"           text,
+    "identifikasjon.navnerom"          text,
+    "identifikasjon.versjonId"         text,
+    -- xs:dateTime in the XSD — timestamp (not date) so the serialized
+    -- value carries the T00:00:00 part xs:dateTime requires
+    "førsteDigitaliseringsdato"        timestamp,
+    "oppdateringsdato"                 timestamp,
+    "kvalitet.målemetode"              text,
+    "kvalitet.nøyaktighet"             text,
+    "kopidata.områdeId"                text,
+    "kopidata.originalDatavert"        text,
+    "kopidata.kopidato"                date
 );
 
 -- Kommuneplan: KpOmråde. Note `geometri` (not `område`) for the geom column —

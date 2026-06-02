@@ -54,15 +54,65 @@ def test_f_and_mimetype_overrides():
 
 
 def test_feature_types_registry_covers_known_types():
+    # 20 original + 13 grense
     expected = {
         "KpOmråde",
         "KpArealformålOmråde",
         "KpJuridiskLinje",
         "KpPåskrift",
         "KpSamferdselLinje",
+        "KpGrense",
+        "KpArealGrense",
     }
     assert expected.issubset(FEATURE_TYPES.keys())
-    assert len(FEATURE_TYPES) == 20
+    assert len(FEATURE_TYPES) == 33
+
+
+def test_grense_types_structure():
+    """KP grense types: same shared XSD shape as RP grense, with the KP
+    conventions — DB geom column `geometri`, force_datetime kopidata."""
+    grense_types = [fc for name, fc in FEATURE_TYPES.items() if name.endswith("Grense")]
+    assert len(grense_types) == 13
+
+    from pygeoapi_formatter_gml_npad.mapping import GRENSE_PREFIX
+
+    for fc in grense_types:
+        assert fc.element_order == GRENSE_PREFIX + ["grense"], fc.feature_type_name
+        assert fc.geometry_gml_name == "grense", fc.feature_type_name
+        assert fc.geometry_column == "geometri", fc.feature_type_name
+        assert all(g.gml_parent != "arealplanId" for g in fc.nested_groups), (
+            fc.feature_type_name
+        )
+        assert fc.id_prefix == fc.view_name.removesuffix("_mv"), fc.feature_type_name
+        # KP kopidata variant: kopidato upgraded to xs:dateTime
+        kopidata = next(g for g in fc.nested_groups if g.gml_parent == "kopidata")
+        assert "kopidata.kopidato" in kopidata.force_datetime_columns, (
+            fc.feature_type_name
+        )
+
+
+def test_write_serializes_minimal_grense_feature():
+    fmt = KommuneplanFormatter({"feature_type": "KpGrense", "validate": False})
+    feature = {
+        "type": "Feature",
+        "properties": {
+            "identifikasjon.lokalId": "kp-grense-abc",
+            "identifikasjon.navnerom": "ns",
+            "identifikasjon.versjonId": "1",
+            "_geometry_gml": (
+                '<gml:LineString srsName="urn:ogc:def:crs:EPSG::25833">'
+                "<gml:posList>598000 6644000 599000 6645000</gml:posList>"
+                "</gml:LineString>"
+            ),
+        },
+    }
+    out = fmt.write({}, {"type": "FeatureCollection", "features": [feature]})
+
+    assert "<app:KpGrense " in out
+    assert 'gml:id="kpgrense.1"' in out
+    assert "<app:lokalId>kp-grense-abc</app:lokalId>" in out
+    assert "<app:grense><gml:LineString" in out
+    assert 'gml:id="kpgrense.1.geom"' in out
 
 
 def test_feature_types_by_view_index():

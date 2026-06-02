@@ -14,6 +14,7 @@ Originally extracted from
 
 from ..mapping import (
     DELOMRADE_PREFIX,
+    GRENSE_PREFIX,
     HOYDEFRAPLANBESTEMMELSE,
     IDENTIFIKASJON,
     KOPIDATA,
@@ -622,6 +623,55 @@ RBRESTRIKSJONOMRADE = FeatureTypeConfig(
 )
 
 
+# --- Grense (boundary) types ---
+# All 29 grense types across RP and KP share one XSD shape: they extend
+# Fellesegenskaper_LinjerOgPunktType DIRECTLY (no arealplanId, no
+# vertikalnivå — unlike line/point types) and add exactly one element
+# `grense` of gml:CurvePropertyType. Verified against
+# reguleringsplan_20190401_filprod.xsd; the factory encodes that
+# uniformity instead of repeating 13 identical lines per type.
+
+
+def _grense(feature_type_name: str, view_name: str) -> FeatureTypeConfig:
+    return FeatureTypeConfig(
+        view_name=view_name,
+        feature_type_name=feature_type_name,
+        geometry_column="grense",
+        geometry_gml_name="grense",
+        id_prefix=view_name.removesuffix("_grense_mv"),
+        element_order=GRENSE_PREFIX + ["grense"],
+        simple_properties={
+            "førsteDigitaliseringsdato": "førsteDigitaliseringsdato",
+            "oppdateringsdato": "oppdateringsdato",
+        },
+        nested_groups=[IDENTIFIKASJON, KVALITET, KOPIDATA],
+    )
+
+
+RPGRENSE = _grense("RpGrense", "rpgrense_grense_mv")
+RPFORMALGRENSE = _grense("RpFormålGrense", "rpformalgrense_grense_mv")
+RPANGITTHENSYNGRENSE = _grense("RpAngittHensynGrense", "rpangitthensyngrense_grense_mv")
+RPBESTEMMELSEGRENSE = _grense("RpBestemmelseGrense", "rpbestemmelsegrense_grense_mv")
+RPBANDLEGGINGGRENSE = _grense("RpBåndleggingGrense", "rpbandlegginggrense_grense_mv")
+RPDETALJERINGGRENSE = _grense("RpDetaljeringGrense", "rpdetaljeringgrense_grense_mv")
+RPFAREGRENSE = _grense("RpFareGrense", "rpfaregrense_grense_mv")
+RPGJENNOMFORINGGRENSE = _grense(
+    "RpGjennomføringGrense", "rpgjennomforinggrense_grense_mv"
+)
+RPINFRASTRUKTURGRENSE = _grense(
+    "RpInfrastrukturGrense", "rpinfrastrukturgrense_grense_mv"
+)
+RPSIKRINGGRENSE = _grense("RpSikringGrense", "rpsikringgrense_grense_mv")
+RPSTOYGRENSE = _grense("RpStøyGrense", "rpstoygrense_grense_mv")
+RBBEVARINGGRENSE = _grense("RbBevaringGrense", "rbbevaringgrense_grense_mv")
+RBFORNYELSEGRENSE = _grense("RbFornyelseGrense", "rbfornyelsegrense_grense_mv")
+RBREKKEFOLGEGRENSE = _grense("RbRekkefølgeGrense", "rbrekkefolgegrense_grense_mv")
+RBRESTRIKSJONGRENSE = _grense("RbRestriksjonGrense", "rbrestriksjongrense_grense_mv")
+PBLMIDLBYGGANLEGGGRENSE = _grense(
+    "PblMidlByggAnleggGrense", "pblmidlbygganlegggrense_grense_mv"
+)
+
+
 ALL_RP_FEATURE_TYPES: list[FeatureTypeConfig] = [
     RPOMRADE,
     RPAREALFORMALOMRADE,
@@ -645,6 +695,23 @@ ALL_RP_FEATURE_TYPES: list[FeatureTypeConfig] = [
     RBFORNYELSEOMRADE,
     RBREKKEFOLGEOMRADE,
     RBRESTRIKSJONOMRADE,
+    # Grense (boundary) types
+    RPGRENSE,
+    RPFORMALGRENSE,
+    RPANGITTHENSYNGRENSE,
+    RPBESTEMMELSEGRENSE,
+    RPBANDLEGGINGGRENSE,
+    RPDETALJERINGGRENSE,
+    RPFAREGRENSE,
+    RPGJENNOMFORINGGRENSE,
+    RPINFRASTRUKTURGRENSE,
+    RPSIKRINGGRENSE,
+    RPSTOYGRENSE,
+    RBBEVARINGGRENSE,
+    RBFORNYELSEGRENSE,
+    RBREKKEFOLGEGRENSE,
+    RBRESTRIKSJONGRENSE,
+    PBLMIDLBYGGANLEGGGRENSE,
 ]
 
 FEATURE_TYPES: dict[str, FeatureTypeConfig] = {

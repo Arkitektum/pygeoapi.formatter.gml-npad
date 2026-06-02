@@ -9,7 +9,7 @@
 --   allows 1|2|3, hence '3' on the KP row. planbestemmelse / lovreferanse
 --   use code '1' on both.
 
-TRUNCATE TABLE rpomrade_omrade_mv, kpomrade_mv;
+TRUNCATE TABLE rpomrade_omrade_mv, kpomrade_mv, rpformalgrense_grense_mv;
 
 INSERT INTO rpomrade_omrade_mv (
     objid,
@@ -83,4 +83,32 @@ INSERT INTO kpomrade_mv (
     'Smoke Test Kommuneplan',
     '1',
     '1'
+);
+
+INSERT INTO rpformalgrense_grense_mv (
+    objid,
+    "grense",
+    "identifikasjon.lokalId",
+    "identifikasjon.navnerom",
+    "identifikasjon.versjonId",
+    "førsteDigitaliseringsdato",
+    "oppdateringsdato",
+    "kvalitet.målemetode",
+    "kvalitet.nøyaktighet",
+    "kopidata.områdeId",
+    "kopidata.originalDatavert",
+    "kopidata.kopidato"
+) VALUES (
+    1,
+    ST_GeomFromText('LINESTRING(597000 6643000, 598000 6643000, 598000 6644000)', 25833),
+    'rpfg-smoke-001',
+    'https://data.geonorge.no/SOSI/produktspesifikasjon/Reguleringsplan/20190401',
+    '1',
+    '2018-06-12',
+    '2019-04-01',
+    '24',
+    '10',
+    '0301',
+    'Kartverket',
+    '2019-04-01'
 );

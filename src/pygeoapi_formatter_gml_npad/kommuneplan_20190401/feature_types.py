@@ -12,6 +12,7 @@ Originally extracted from
 """
 
 from ..mapping import (
+    GRENSE_PREFIX,
     HOYDEFRAPLANBESTEMMELSE,
     IDENTIFIKASJON,
     KP_AREALPLAN_ID,
@@ -544,6 +545,46 @@ KPSTOYSONE = FeatureTypeConfig(
 )
 
 
+# --- Grense (boundary) types ---
+# Same XSD shape as the RP-side grense types: extend
+# Fellesegenskaper_LinjerOgPunktType DIRECTLY (no arealplanId) and add one
+# `grense` element of gml:CurvePropertyType. Verified against
+# kommuneplan_20190401_filprod.xsd. KP differences from RP: the geometry
+# DB column is `geometri` (KP MV convention) and kopidata uses the
+# force_datetime variant (KP_KOPIDATA).
+
+
+def _grense(feature_type_name: str, view_name: str) -> FeatureTypeConfig:
+    return FeatureTypeConfig(
+        view_name=view_name,
+        feature_type_name=feature_type_name,
+        geometry_column="geometri",
+        geometry_gml_name="grense",
+        id_prefix=view_name.removesuffix("_mv"),
+        element_order=GRENSE_PREFIX + ["grense"],
+        simple_properties={
+            "førsteDigitaliseringsdato": "førsteDigitaliseringsdato",
+            "oppdateringsdato": "oppdateringsdato",
+        },
+        nested_groups=[IDENTIFIKASJON, KVALITET, KP_KOPIDATA],
+    )
+
+
+KPGRENSE = _grense("KpGrense", "kpgrense_mv")
+KPAREALGRENSE = _grense("KpArealGrense", "kparealgrense_mv")
+KPANGITTHENSYNGRENSE = _grense("KpAngittHensynGrense", "kpangitthensyngrense_mv")
+KPBESTEMMELSEGRENSE = _grense("KpBestemmelseGrense", "kpbestemmelsegrense_mv")
+KPBANDLEGGINGGRENSE = _grense("KpBåndleggingGrense", "kpbandlegginggrense_mv")
+KPDETALJERINGGRENSE = _grense("KpDetaljeringGrense", "kpdetaljeringgrense_mv")
+KPFAREGRENSE = _grense("KpFareGrense", "kpfaregrense_mv")
+KPGJENNOMFORINGGRENSE = _grense("KpGjennomføringGrense", "kpgjennomforinggrense_mv")
+KPINFRASTRUKTURGRENSE = _grense("KpInfrastrukturGrense", "kpinfrastrukturgrense_mv")
+KPRESTRIKSJONGRENSE = _grense("KpRestriksjonGrense", "kprestriksjongrense_mv")
+KPRETNINGSLINJEGRENSE = _grense("KpRetningslinjeGrense", "kpretningslinjegrense_mv")
+KPSIKRINGGRENSE = _grense("KpSikringGrense", "kpsikringgrense_mv")
+KPSTOYGRENSE = _grense("KpStøyGrense", "kpstoygrense_mv")
+
+
 ALL_KP_FEATURE_TYPES: list[FeatureTypeConfig] = [
     KPOMRADE,
     KPAREALFORMALOMRADE,
@@ -565,6 +606,20 @@ ALL_KP_FEATURE_TYPES: list[FeatureTypeConfig] = [
     KPSAMFERDSELPUNKT,
     KPSIKRINGSONE,
     KPSTOYSONE,
+    # Grense (boundary) types
+    KPGRENSE,
+    KPAREALGRENSE,
+    KPANGITTHENSYNGRENSE,
+    KPBESTEMMELSEGRENSE,
+    KPBANDLEGGINGGRENSE,
+    KPDETALJERINGGRENSE,
+    KPFAREGRENSE,
+    KPGJENNOMFORINGGRENSE,
+    KPINFRASTRUKTURGRENSE,
+    KPRESTRIKSJONGRENSE,
+    KPRETNINGSLINJEGRENSE,
+    KPSIKRINGGRENSE,
+    KPSTOYGRENSE,
 ]
 
 FEATURE_TYPES: dict[str, FeatureTypeConfig] = {
