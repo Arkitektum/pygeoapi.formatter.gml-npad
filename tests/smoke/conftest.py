@@ -68,10 +68,14 @@ def _provider_def(table: str, geom_field: str) -> dict:
     return {
         "type": "feature",
         "name": "postgresql_ext.PostgreSQLExtendedProvider",
-        # property_shape: dotted is the contract this formatter requires.
-        # Available in postgresql_ext v0.3.0+. Until that ships, this smoke
-        # job will fail at provider init — that's the intended signal.
+        # property_shape: dotted is the contract this formatter requires
+        # (postgresql_ext v0.3.0+).
         "property_shape": "dotted",
+        # gml_passthrough injects _geometry_gml into properties via a
+        # server-side ST_AsGML column_property (postgresql_ext v0.4.0+).
+        # gml_options defaults to 1 (curve-aware emission, matching
+        # gml-export's flag-4 drop) — not set explicitly here.
+        "gml_passthrough": True,
         "data": {
             "host": os.environ.get("SMOKE_DB_HOST", "localhost"),
             "port": int(os.environ.get("SMOKE_DB_PORT", "5432")),

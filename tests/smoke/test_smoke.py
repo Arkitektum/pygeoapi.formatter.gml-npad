@@ -6,13 +6,14 @@ What this exercises that the unit tests don't:
   diacritic-preserving column names
 - ``property_shape: dotted`` mode in postgresql_ext (v0.3.0+), passing the
   raw column dict through without nesting or leaf-stripping
+- ``gml_passthrough: true`` (v0.4.0+): the provider injects a server-side
+  ``ST_AsGML`` rendering of the geometry as a synthetic ``_geometry_gml``
+  property, which the formatter passes through into the feature element
 - The formatter's ``write()`` against real psycopg-typed values (psycopg
   date / Decimal / etc. flowing through ``_format_value``)
-
-Geometry is intentionally *not* exercised here — the smoke schema has the
-binary geom column but no ``_geometry_gml`` text column yet. That arrives
-with postgresql_ext PR2 (``gml_passthrough``) + corresponding MV column
-additions. Formatter ``validate=False`` until then.
+- ``validate=True``: the serialized first feature is XSD-validated against
+  the real SOSI schemas from skjema.geonorge.no (network needed on cold
+  cache; cached under /tmp/xsd-cache or $PYGEOAPI_GML_NPAD_XSD_CACHE_DIR)
 """
 
 import pytest
@@ -38,7 +39,8 @@ def _query_features(provider_def: dict) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Provider-side contract: property_shape: dotted produces dot-bearing keys
+# Provider-side contract: property_shape: dotted produces dot-bearing keys,
+# gml_passthrough produces _geometry_gml
 # ---------------------------------------------------------------------------
 
 
@@ -68,6 +70,20 @@ def test_kp_provider_emits_dotted_property_keys(kp_provider_def):
     assert "arealplanId.kommunenummer" in props
 
 
+def test_provider_injects_geometry_gml(rp_provider_def):
+    """gml_passthrough: true must surface a pre-rendered GML 3.2 string as
+    a top-level synthetic property, alongside (not nested under) the
+    dotted user keys."""
+    fc = _query_features(rp_provider_def)
+
+    props = fc["features"][0]["properties"]
+    assert "_geometry_gml" in props
+    geom_gml = props["_geometry_gml"]
+    assert geom_gml.startswith("<gml:Polygon")
+    # Long CRS URN — ST_AsGML options bit 1
+    assert 'srsName="urn:ogc:def:crs:EPSG::25833"' in geom_gml
+
+
 # ---------------------------------------------------------------------------
 # Formatter-side: serialize the provider's output to schema-shaped GML
 # ---------------------------------------------------------------------------
@@ -84,7 +100,11 @@ def _assert_envelope(gml: str, schema_namespace: str, feature_count: int) -> Non
 def test_rp_full_chain_serializes_to_gml(rp_provider_def):
     fc = _query_features(rp_provider_def)
 
-    fmt = ReguleringsplanFormatter({"feature_type": "RpOmråde", "validate": False})
+    # validate=True is the real gate: the first feature is validated
+    # against the SOSI XSD (downloaded from skjema.geonorge.no on first
+    # use, cached on disk afterward — needs network on cold cache).
+    # Fixtures carry every XSD-REQUIRED element so this passes.
+    fmt = ReguleringsplanFormatter({"feature_type": "RpOmråde", "validate": True})
     gml = fmt.write({}, fc)
 
     _assert_envelope(gml, ReguleringsplanFormatter.SCHEMA_NAMESPACE, feature_count=1)
@@ -106,11 +126,17 @@ def test_rp_full_chain_serializes_to_gml(rp_provider_def):
     # gml:id derived from id_prefix + monotonic counter, not from objid
     assert 'gml:id="rpomrade.1"' in gml
 
+    # Geometry: provider-rendered ST_AsGML passed through into the
+    # XSD-ordered <app:område> wrapper, with a gml:id injected by the writer
+    assert "<app:område><gml:Polygon" in gml
+    assert 'gml:id="rpomrade.1.geom"' in gml
+    assert "</gml:Polygon></app:område>" in gml
+
 
 def test_kp_full_chain_serializes_to_gml(kp_provider_def):
     fc = _query_features(kp_provider_def)
 
-    fmt = KommuneplanFormatter({"feature_type": "KpOmråde", "validate": False})
+    fmt = KommuneplanFormatter({"feature_type": "KpOmråde", "validate": True})
     gml = fmt.write({}, fc)
 
     _assert_envelope(gml, KommuneplanFormatter.SCHEMA_NAMESPACE, feature_count=1)
@@ -121,22 +147,6 @@ def test_kp_full_chain_serializes_to_gml(kp_provider_def):
     assert "<app:plantype>20</app:plantype>" in gml
     assert 'gml:id="kpomrade.1"' in gml
 
-
-# ---------------------------------------------------------------------------
-# Negative signal: pre-PR2, geometry should NOT appear in the output
-# ---------------------------------------------------------------------------
-
-
-def test_geometry_absent_until_gml_passthrough_ships(rp_provider_def):
-    """Until postgresql_ext PR2 adds ``gml_passthrough`` (which injects
-    ``_geometry_gml`` into properties), the formatter receives no GML-text
-    for the geometry and skips the element entirely. This test locks that
-    pre-PR2 behavior so we notice the transition when PR2 lands."""
-    fc = _query_features(rp_provider_def)
-
-    fmt = ReguleringsplanFormatter({"feature_type": "RpOmråde", "validate": False})
-    gml = fmt.write({}, fc)
-
-    # No <app:område> wrapper because _geometry_gml is missing from the row
-    assert "<app:område>" not in gml
-    assert "<gml:Polygon" not in gml
+    # KP: DB geom column is `geometri`, GML element is `område`
+    assert "<app:område><gml:Polygon" in gml
+    assert 'gml:id="kpomrade.1.geom"' in gml

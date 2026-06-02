@@ -25,7 +25,7 @@ smoke = [
     # postgresql_ext builds its engine via that dialect. Matches the pattern in
     # pygeoapi.plandata's Dockerfile, which also installs both side by side.
     "psycopg2-binary>=2.9",
-    "postgresql_ext @ git+https://github.com/Arkitektum/pygeoapi.provider.postgresql_ext@v0.3.1",
+    "postgresql_ext @ git+https://github.com/Arkitektum/pygeoapi.provider.postgresql_ext@v0.4.0",
 ]
 
 [build-system]

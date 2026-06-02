@@ -2,18 +2,23 @@
 --
 -- These are TABLEs (not MATERIALIZED VIEWs) for setup simplicity; postgresql_ext
 -- treats them identically via SQLAlchemy reflection. The column set is the
--- minimum required to exercise the property-roundtrip path through
--- FeatureTypeConfig.nested_groups + simple_properties: the identifikasjon /
--- arealplanId / kopidata wrappers plus one or two simple properties.
+-- minimum required for the serialized feature to pass XSD validation: every
+-- REQUIRED element of RpOmrådeType / KpOmrådeType plus the nested wrappers
+-- (identifikasjon / arealplanId / kopidata) and a few optional properties.
 --
 -- Diacritics and dots in column names are required by the SOSI / NPAD convention
 -- and must be double-quoted. The geom column name differs between RP (`område`)
 -- and KP (`geometri`) — matches gml-export's FeatureTypeConfig.geometry_column.
 --
--- `_geometry_gml` and `_derived_point_gml` columns are intentionally absent.
--- They land when postgresql_ext PR2 (`gml_passthrough`) and the corresponding
--- MV column additions ship. Until then, formatter responses are property-only
--- and run with `validate: false` since SOSI XSDs require geometry.
+-- All value columns are text on purpose — production MVs may carry
+-- zero-prefixed identifiers (e.g. kommunenummer '0301'), and the writer
+-- stringifies values anyway. XSD numeric types (xs:integer for
+-- kopidata.områdeId) accept leading zeros in their lexical space, so text
+-- with integer-lexical content validates fine.
+--
+-- `_geometry_gml` is NOT a column: postgresql_ext v0.4.0's
+-- `gml_passthrough: true` injects it as a server-side ST_AsGML
+-- column_property at query time.
 
 CREATE EXTENSION IF NOT EXISTS postgis;
 
@@ -33,9 +38,12 @@ CREATE TABLE rpomrade_omrade_mv (
     "kopidata.områdeId"                text,
     "kopidata.originalDatavert"        text,
     "kopidata.kopidato"                date,
+    "vertikalnivå"                     text,
     plantype                           text,
     planstatus                         text,
-    plannavn                           text
+    plannavn                           text,
+    planbestemmelse                    text,
+    lovreferanse                       text
 );
 
 -- Kommuneplan: KpOmråde. Note `geometri` (not `område`) for the geom column —
@@ -54,5 +62,7 @@ CREATE TABLE kpomrade_mv (
     "kopidata.kopidato"                date,
     plantype                           text,
     planstatus                         text,
-    plannavn                           text
+    plannavn                           text,
+    planbestemmelse                    text,
+    lovreferanse                       text
 );
