@@ -59,6 +59,45 @@ def _format_value(
     return text
 
 
+def _flatten_into(out: dict, obj: dict, prefix: str) -> None:
+    """Recursively flatten ``obj`` into ``out`` with dot-joined keys."""
+    for key, value in obj.items():
+        dotted = f"{prefix}.{key}" if prefix else key
+        if isinstance(value, dict):
+            _flatten_into(out, value, dotted)
+        else:
+            out[dotted] = value
+
+
+def normalize_to_dotted(properties: dict) -> dict:
+    """Normalize a feature's ``properties`` to the writer's dotted-key shape.
+
+    The writer's data model is keyed by dot-separated DB column names
+    (``identifikasjon.lokalId``). ``postgresql_ext`` can emit properties in
+    two shapes the writer accepts, and this collapses both to dotted:
+
+    - ``property_shape: dotted`` — keys already dot-joined, values are
+      scalars / lists / ``None``. No dict values, so this is an identity
+      pass.
+    - ``property_shape: nested`` (the provider default) — group columns
+      arrive as sub-dicts, e.g. ``{"identifikasjon": {"lokalId": ...}}``.
+      Flattened to ``{"identifikasjon.lokalId": ...}``. Repeating groups
+      arrive as parallel arrays at the leaves
+      (``{"utnytting": {"utnyttingstype": [...]}}``) and flatten to the
+      same parallel-array dotted form the writer already expects.
+
+    Synthetic GML keys (``_geometry_gml``, ``_derived_point_gml``) are
+    plain strings and pass through untouched.
+
+    ``property_shape: flat_leaf`` is **not** supported: it strips the group
+    prefix (and collides on shared leaf names), leaving nothing to
+    reconstruct the dotted keys from.
+    """
+    out: dict = {}
+    _flatten_into(out, properties, "")
+    return out
+
+
 def build_nsmap(schema: SchemaInfo) -> dict[str | None, str]:
     """Build the namespace map for the GML document."""
     return {

@@ -188,18 +188,27 @@ GML strings:
 
 Specifically:
 
-- **Property keys are dot-bearing, case- and diacritic-preserving.**
-  Neither of pygeoapi's two built-in property modes preserves this
-  shape: `flatten_properties: true` strips the prefix
-  (`identifikasjon.lokalId` → `lokalId`, with silent collisions when
-  two columns share a leaf — e.g. `arealplanId.kommunenummer` vs
-  `bygning.kommunenummer`), and `flatten_properties: false`
-  (canonical) nests them as
-  `{"identifikasjon": {"lokalId": "..."}}`. To produce the verbatim
-  dotted shape this formatter needs, use Arkitektum's
-  `postgresql_ext` provider with `property_shape: dotted` (the exact
-  flag name is being finalized between the formatter and provider
-  agents — see deployment docs at cutover time).
+- **Property keys are dot-bearing, case- and diacritic-preserving** —
+  internally. The formatter accepts **two** of `postgresql_ext`'s
+  property shapes and normalizes both to this dotted form before
+  serializing:
+  - `property_shape: dotted` — verbatim dotted keys
+    (`{"identifikasjon.lokalId": "..."}`). Identity pass.
+  - `property_shape: nested` (the provider default) — canonical GeoJSON
+    nesting (`{"identifikasjon": {"lokalId": "..."}}`). Flattened back to
+    dotted keys internally; repeating groups arrive as parallel arrays at
+    the leaves and flatten cleanly. **Use this when one collection must
+    serve both clean GeoJSON at `?f=json` and GML at `?f=gml`** — the
+    nested shape keeps the JSON readable while the formatter re-dots for
+    GML. (Synthetic geometry keys still surface in the JSON `properties`;
+    suppressing them from the JSON body is a provider/serving-layer
+    concern, not the formatter's.)
+
+  `property_shape: flat_leaf` is **not** supported — it strips the group
+  prefix (`identifikasjon.lokalId` → `lokalId`, with silent collisions
+  when two columns share a leaf, e.g. `arealplanId.kommunenummer` vs
+  `bygning.kommunenummer`), leaving nothing to reconstruct the dotted
+  keys from.
 - **Values are native Python types from psycopg**: `str`, `int`,
   `float`, `datetime.date`, `datetime.datetime`, `None`, and `list`
   for repeating nested groups (PostgreSQL array columns).

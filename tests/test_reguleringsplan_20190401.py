@@ -7,6 +7,9 @@ from pygeoapi_formatter_gml_npad.reguleringsplan_20190401 import (
     SCHEMA_INFO,
     ReguleringsplanFormatter,
 )
+from pygeoapi_formatter_gml_npad.writer import (
+    normalize_to_dotted,
+)
 
 
 def test_default_identifiers():
@@ -206,3 +209,87 @@ def test_nested_group_emits_default_value_when_all_source_columns_null():
     assert "<app:høydefraplanbestemmelse>" in out
     assert "<app:HøydeFraPlanbestemmelse>" in out
     assert "<app:høydereferansesystem>other: ukjent</app:høydereferansesystem>" in out
+
+
+def test_normalize_to_dotted_flattens_nested_shape():
+    """postgresql_ext ``property_shape: nested`` emits group columns as
+    sub-dicts; the writer wants dot-joined keys. Flattening must be lossless
+    and must leave parallel-array leaves (repeating groups) and synthetic
+    string keys intact."""
+    nested = {
+        "identifikasjon": {"lokalId": "abc", "navnerom": "ns"},
+        "utnytting": {"utnyttingstype": [1, 2], "utnyttingstall": [10, 20]},
+        "plantype": "35",
+        "_geometry_gml": "<gml:Polygon/>",
+    }
+    assert normalize_to_dotted(nested) == {
+        "identifikasjon.lokalId": "abc",
+        "identifikasjon.navnerom": "ns",
+        # Repeating-group leaves stay as parallel arrays — exactly the
+        # dotted form _write_repeating_nested_group already consumes.
+        "utnytting.utnyttingstype": [1, 2],
+        "utnytting.utnyttingstall": [10, 20],
+        "plantype": "35",
+        "_geometry_gml": "<gml:Polygon/>",
+    }
+
+
+def test_normalize_to_dotted_is_identity_on_dotted_shape():
+    """``property_shape: dotted`` rows have no dict values, so normalization
+    is a no-op — guarantees existing dotted deployments are unaffected."""
+    dotted = {
+        "identifikasjon.lokalId": "abc",
+        "arealplanId.kommunenummer": "0301",
+        "plantype": "35",
+        "_geometry_gml": "<gml:Polygon/>",
+    }
+    assert normalize_to_dotted(dotted) == dotted
+
+
+def test_write_accepts_nested_and_dotted_shapes_identically():
+    """A collection on ``property_shape: nested`` (clean GeoJSON) and one on
+    ``dotted`` must serialize byte-identical GML — the contract that lets a
+    single collection serve both ?f=json and ?f=gml."""
+    fmt = ReguleringsplanFormatter(
+        {"feature_type": "RpFormålGrense", "validate": False}
+    )
+    geom = (
+        '<gml:LineString srsName="urn:ogc:def:crs:EPSG::25833">'
+        "<gml:posList>597000 6643000 598000 6644000</gml:posList>"
+        "</gml:LineString>"
+    )
+    dotted_feature = {
+        "type": "Feature",
+        "properties": {
+            "identifikasjon.lokalId": "grense-abc",
+            "identifikasjon.navnerom": "ns",
+            "identifikasjon.versjonId": "1",
+            "kvalitet.målemetode": "24",
+            "_geometry_gml": geom,
+        },
+    }
+    nested_feature = {
+        "type": "Feature",
+        "properties": {
+            "identifikasjon": {
+                "lokalId": "grense-abc",
+                "navnerom": "ns",
+                "versjonId": "1",
+            },
+            "kvalitet": {"målemetode": "24"},
+            # Synthetic key stays top-level even in nested shape (matches
+            # postgresql_ext's _create_feature behavior).
+            "_geometry_gml": geom,
+        },
+    }
+
+    dotted_out = fmt.write(
+        {}, {"type": "FeatureCollection", "features": [dotted_feature]}
+    )
+    nested_out = fmt.write(
+        {}, {"type": "FeatureCollection", "features": [nested_feature]}
+    )
+
+    assert nested_out == dotted_out
+    assert "<app:grense><gml:LineString" in nested_out
+    assert "<app:målemetode>24</app:målemetode>" in nested_out

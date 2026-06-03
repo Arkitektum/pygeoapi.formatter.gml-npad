@@ -22,6 +22,7 @@ from pygeoapi_formatter_gml_npad.writer import (
     XML_FOOTER,
     build_nsmap,
     build_xml_header,
+    normalize_to_dotted,
     serialize_feature,
 )
 
@@ -106,7 +107,12 @@ class _GMLBase(BaseFormatter):
         config = self.FEATURE_TYPES[self._feature_type_name]
 
         features = (data or {}).get("features") or []
-        rows: list[dict] = [(feat.get("properties") or {}) for feat in features]
+        # Accept both postgresql_ext property shapes: dotted (identity) and
+        # nested (flattened back to dot-joined keys). Lets one collection
+        # serve clean nested GeoJSON at ?f=json and valid GML at ?f=gml.
+        rows: list[dict] = [
+            normalize_to_dotted(feat.get("properties") or {}) for feat in features
+        ]
 
         if self._validate and rows:
             from pygeoapi_formatter_gml_npad.validation import (
