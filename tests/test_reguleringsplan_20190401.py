@@ -19,7 +19,8 @@ def test_default_identifiers():
     assert fmt.f == "gml"
     assert fmt.mimetype == "application/gml+xml"
     assert fmt.extension == "gml"
-    assert fmt.attachment is True
+    # Default inline (matches pygeoapi BaseFormatter) — browsers render it.
+    assert fmt.attachment is False
 
 
 def test_schema_constants():
@@ -53,6 +54,14 @@ def test_f_and_mimetype_overrides():
     assert fmt.f == "gml-reg-2024"
     assert fmt.mimetype == "application/gml+xml; profile=x"
     assert fmt.extension == "gml"
+    assert fmt.attachment is False
+
+
+def test_attachment_override_forces_download():
+    # attachment: true → Content-Disposition: attachment, so the response
+    # downloads as a file instead of rendering inline.
+    fmt = ReguleringsplanFormatter({"feature_type": "RpOmråde", "attachment": True})
+
     assert fmt.attachment is True
 
 

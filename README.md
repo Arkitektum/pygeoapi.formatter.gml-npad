@@ -22,7 +22,9 @@ combination; shared GML mechanics live in
 | Kommuneplan     | 20190401   | `KommuneplanFormatter`     | `pygeoapi_formatter_gml_npad.kommuneplan_20190401`       |
 
 Defaults for every formatter: `f='gml'`, `mimetype='application/gml+xml'`,
-`extension='gml'`, `attachment=True`. The product-spec version is conveyed
+`extension='gml'`, `attachment=False` (served inline so browsers render the
+GML; set `attachment: true` on the formatter entry to download as a file).
+The product-spec version is conveyed
 **in the response body** via `xmlns` and `xsi:schemaLocation`, not the
 `Content-Type` header — clients that need to verify the version should
 read the body, not negotiate.

@@ -63,8 +63,13 @@ class _GMLBase(BaseFormatter):
     def __init__(self, formatter_def: dict):
         f = formatter_def.get("f", self.DEFAULT_F)
         mimetype = formatter_def.get("mimetype", self.DEFAULT_MIMETYPE)
+        # Defaults to False (served inline — browsers render the GML),
+        # matching pygeoapi's BaseFormatter default. Set attachment: true on
+        # the formatter entry to send Content-Disposition: attachment so the
+        # response downloads as a file instead.
+        attachment = bool(formatter_def.get("attachment", False))
 
-        super().__init__({"name": self._NAME, "attachment": True})
+        super().__init__({"name": self._NAME, "attachment": attachment})
         self.f = f
         self.mimetype = mimetype
         self.extension = "gml"

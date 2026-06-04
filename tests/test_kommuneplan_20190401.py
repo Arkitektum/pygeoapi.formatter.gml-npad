@@ -16,7 +16,7 @@ def test_default_identifiers():
     assert fmt.f == "gml"
     assert fmt.mimetype == "application/gml+xml"
     assert fmt.extension == "gml"
-    assert fmt.attachment is True
+    assert fmt.attachment is False
 
 
 def test_schema_constants():
@@ -50,7 +50,7 @@ def test_f_and_mimetype_overrides():
     assert fmt.f == "gml-kom-2024"
     assert fmt.mimetype == "application/gml+xml; profile=x"
     assert fmt.extension == "gml"
-    assert fmt.attachment is True
+    assert fmt.attachment is False
 
 
 def test_feature_types_registry_covers_known_types():
