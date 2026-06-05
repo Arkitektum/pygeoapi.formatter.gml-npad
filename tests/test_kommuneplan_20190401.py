@@ -109,10 +109,10 @@ def test_write_serializes_minimal_grense_feature():
     out = fmt.write({}, {"type": "FeatureCollection", "features": [feature]})
 
     assert "<app:KpGrense " in out
-    assert 'gml:id="kpgrense.1"' in out
+    assert 'gml:id="kpgrense.kp-grense-abc.1"' in out
     assert "<app:lokalId>kp-grense-abc</app:lokalId>" in out
     assert "<app:grense><gml:LineString" in out
-    assert 'gml:id="kpgrense.1.geom"' in out
+    assert 'gml:id="kpgrense.kp-grense-abc.1.geom"' in out
 
 
 def test_feature_types_by_view_index():
@@ -160,6 +160,6 @@ def test_write_serializes_minimal_feature():
 
     assert 'numberReturned="1"' in out
     assert "<app:KpOmråde " in out
-    assert 'gml:id="kpomrade.1"' in out
+    assert 'gml:id="kpomrade.kp-xyz.1"' in out
     assert "<app:lokalId>kp-xyz</app:lokalId>" in out
     assert "<app:plantype>20</app:plantype>" in out

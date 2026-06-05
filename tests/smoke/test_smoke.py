@@ -123,13 +123,14 @@ def test_rp_full_chain_serializes_to_gml(rp_provider_def):
     # Simple property
     assert "<app:plantype>35</app:plantype>" in gml
 
-    # gml:id derived from id_prefix + monotonic counter, not from objid
-    assert 'gml:id="rpomrade.1"' in gml
+    # gml:id derived from id_prefix + identifikasjon.lokalId + versjonId
+    # (persistent/deterministic), not from objid or a counter
+    assert 'gml:id="rpomrade.rp-smoke-001.1"' in gml
 
     # Geometry: provider-rendered ST_AsGML passed through into the
     # XSD-ordered <app:område> wrapper, with a gml:id injected by the writer
     assert "<app:område><gml:Polygon" in gml
-    assert 'gml:id="rpomrade.1.geom"' in gml
+    assert 'gml:id="rpomrade.rp-smoke-001.1.geom"' in gml
     assert "</gml:Polygon></app:område>" in gml
 
 
@@ -145,11 +146,11 @@ def test_kp_full_chain_serializes_to_gml(kp_provider_def):
     assert "<app:lokalId>kp-smoke-001</app:lokalId>" in gml
     assert "<app:kommunenummer>0301</app:kommunenummer>" in gml
     assert "<app:plantype>20</app:plantype>" in gml
-    assert 'gml:id="kpomrade.1"' in gml
+    assert 'gml:id="kpomrade.kp-smoke-001.1"' in gml
 
     # KP: DB geom column is `geometri`, GML element is `område`
     assert "<app:område><gml:Polygon" in gml
-    assert 'gml:id="kpomrade.1.geom"' in gml
+    assert 'gml:id="kpomrade.kp-smoke-001.1.geom"' in gml
 
 
 def test_rp_grense_full_chain_validates(rpformalgrense_provider_def):
@@ -166,7 +167,7 @@ def test_rp_grense_full_chain_validates(rpformalgrense_provider_def):
     _assert_envelope(gml, ReguleringsplanFormatter.SCHEMA_NAMESPACE, feature_count=1)
 
     assert "<app:RpFormålGrense " in gml
-    assert 'gml:id="rpformalgrense.1"' in gml
+    assert 'gml:id="rpformalgrense.rpfg-smoke-001.1"' in gml
     assert "<app:lokalId>rpfg-smoke-001</app:lokalId>" in gml
 
     # kvalitet nested group (grense types carry it; no arealplanId)
@@ -181,4 +182,4 @@ def test_rp_grense_full_chain_validates(rpformalgrense_provider_def):
     # produces.
     assert "<app:grense><gml:Curve" in gml
     assert "<gml:LineStringSegment>" in gml
-    assert 'gml:id="rpformalgrense.1.geom"' in gml
+    assert 'gml:id="rpformalgrense.rpfg-smoke-001.1.geom"' in gml

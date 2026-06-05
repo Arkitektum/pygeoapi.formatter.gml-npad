@@ -227,9 +227,16 @@ Specifically:
   only for `RpPåskrift` (the XSD demands a separate point alongside
   the primary line geometry). The provider computes it as
   "start point for lines, passthrough for points" via `ST_PointN`.
-- **`objid` is ignored** if present — the formatter generates
-  `gml:id` from a monotonic counter via the feature type's
-  `id_prefix`.
+- **`objid` is ignored** if present. The formatter derives a persistent,
+  deterministic `gml:id` from the feature type's `id_prefix` plus the
+  feature's identity: `{id_prefix}.{identifikasjon.lokalId}` (with
+  `.{identifikasjon.versjonId}` appended when versjonId is non-empty). Both
+  identity parts are sanitized to a valid NCName (`gml:id` is `xsd:ID` —
+  no colons/slashes/spaces; characters outside `[A-Za-z0-9_.-]` become
+  `_`). When `lokalId` is missing/blank the formatter falls back to a
+  monotonic counter (`{id_prefix}.{n}`) to keep ids unique within the
+  document. The geometry element's `gml:id` is the feature id suffixed
+  with `.geom`.
 
 The Reguleringsplan subpackage also hosts the **Rb\*** and
 **PblMidlByggAnleggOmråde** feature types — they share the

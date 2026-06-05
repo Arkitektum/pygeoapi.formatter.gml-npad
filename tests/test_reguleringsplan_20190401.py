@@ -125,10 +125,10 @@ def test_write_serializes_minimal_grense_feature():
     out = fmt.write({}, {"type": "FeatureCollection", "features": [feature]})
 
     assert "<app:RpFormålGrense " in out
-    assert 'gml:id="rpformalgrense.1"' in out
+    assert 'gml:id="rpformalgrense.grense-abc.1"' in out
     assert "<app:lokalId>grense-abc</app:lokalId>" in out
     assert "<app:grense><gml:LineString" in out
-    assert 'gml:id="rpformalgrense.1.geom"' in out
+    assert 'gml:id="rpformalgrense.grense-abc.1.geom"' in out
 
 
 def test_feature_types_by_view_index():
@@ -182,7 +182,7 @@ def test_write_serializes_minimal_feature():
 
     assert 'numberReturned="1"' in out
     assert "<app:RpOmråde " in out
-    assert 'gml:id="rpomrade.1"' in out
+    assert 'gml:id="rpomrade.abc-123.1"' in out
     assert "<app:lokalId>abc-123</app:lokalId>" in out
     assert "<app:plantype>35</app:plantype>" in out
 
@@ -302,3 +302,57 @@ def test_write_accepts_nested_and_dotted_shapes_identically():
     assert nested_out == dotted_out
     assert "<app:grense><gml:LineString" in nested_out
     assert "<app:målemetode>24</app:målemetode>" in nested_out
+
+
+def test_gml_id_uses_lokalid_and_versjonid():
+    # Persistent gml:id = {id_prefix}.{lokalId}.{versjonId}.
+    fmt = ReguleringsplanFormatter({"feature_type": "RpOmråde", "validate": False})
+    feature = {
+        "type": "Feature",
+        "properties": {
+            "identifikasjon.lokalId": "abc-123",
+            "identifikasjon.versjonId": "7",
+        },
+    }
+    out = fmt.write({}, {"type": "FeatureCollection", "features": [feature]})
+
+    assert 'gml:id="rpomrade.abc-123.7"' in out
+
+
+def test_gml_id_omits_versjonid_when_blank():
+    # Blank/missing versjonId → {id_prefix}.{lokalId} (no trailing dot-part).
+    fmt = ReguleringsplanFormatter({"feature_type": "RpOmråde", "validate": False})
+    feature = {
+        "type": "Feature",
+        "properties": {
+            "identifikasjon.lokalId": "abc-123",
+            "identifikasjon.versjonId": "",
+        },
+    }
+    out = fmt.write({}, {"type": "FeatureCollection", "features": [feature]})
+
+    assert 'gml:id="rpomrade.abc-123"' in out
+
+
+def test_gml_id_falls_back_to_counter_without_lokalid():
+    # No lokalId → monotonic counter keeps document uniqueness.
+    fmt = ReguleringsplanFormatter({"feature_type": "RpOmråde", "validate": False})
+    feature = {"type": "Feature", "properties": {"plantype": "35"}}
+    out = fmt.write({}, {"type": "FeatureCollection", "features": [feature]})
+
+    assert 'gml:id="rpomrade.1"' in out
+
+
+def test_gml_id_sanitizes_non_ncname_characters():
+    # gml:id is xsd:ID (NCName) — chars outside [A-Za-z0-9_.-] become '_'.
+    fmt = ReguleringsplanFormatter({"feature_type": "RpOmråde", "validate": False})
+    feature = {
+        "type": "Feature",
+        "properties": {
+            "identifikasjon.lokalId": "urn:x/9 9",
+            "identifikasjon.versjonId": "1",
+        },
+    }
+    out = fmt.write({}, {"type": "FeatureCollection", "features": [feature]})
+
+    assert 'gml:id="rpomrade.urn_x_9_9.1"' in out

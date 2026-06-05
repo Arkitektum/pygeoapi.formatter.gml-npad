@@ -14,6 +14,7 @@ from ``gml-export/src/gml_export/gml_writer.py``.
 
 import gzip
 import logging
+import re
 import time
 from collections.abc import Iterator
 from datetime import date, datetime, timezone
@@ -113,6 +114,39 @@ def build_schema_location(schema: SchemaInfo) -> str:
     return f"{schema.namespace} {schema.schema_location}"
 
 
+_NCNAME_INVALID = re.compile(r"[^A-Za-z0-9_.\-]")
+
+
+def _ncname_part(value: object) -> str:
+    """Sanitize a value into an NCName-safe fragment.
+
+    Replaces any character outside ``[A-Za-z0-9_.-]`` with ``_``. The result
+    is only ever appended after ``id_prefix``, so the NCName leading-character
+    rule (letter/underscore, never a digit) is already satisfied by the prefix.
+    """
+    return _NCNAME_INVALID.sub("_", str(value))
+
+
+def compute_gml_id(config: FeatureTypeConfig, row: dict, feature_number: int) -> str:
+    """Build a feature's ``gml:id`` (an ``xsd:ID`` — must be an NCName).
+
+    Persistent and deterministic when ``identifikasjon.lokalId`` is present:
+    ``{id_prefix}.{lokalId}``, plus ``.{versjonId}`` when versjonId is
+    non-empty. Both parts are NCName-sanitized. Falls back to the monotonic
+    ``{id_prefix}.{feature_number}`` when lokalId is missing/blank, which keeps
+    document uniqueness for identity-less rows. Assumes ``(lokalId, versjonId)``
+    is unique within a single response.
+    """
+    lokal_id = row.get("identifikasjon.lokalId")
+    if lokal_id is None or not str(lokal_id).strip():
+        return f"{config.id_prefix}.{feature_number}"
+    gml_id = f"{config.id_prefix}.{_ncname_part(lokal_id)}"
+    versjon_id = row.get("identifikasjon.versjonId")
+    if versjon_id is not None and str(versjon_id).strip():
+        gml_id = f"{gml_id}.{_ncname_part(versjon_id)}"
+    return gml_id
+
+
 # ---------------------------------------------------------------------------
 # lxml element-based builder (used for XSD validation of first feature)
 # ---------------------------------------------------------------------------
@@ -132,7 +166,7 @@ def build_feature_member(
     """
     member = etree.Element(f"{{{NS_WFS}}}member", nsmap=nsmap)
 
-    gml_id = f"{config.id_prefix}.{feature_number}"
+    gml_id = compute_gml_id(config, row, feature_number)
     feature = etree.SubElement(
         member,
         f"{{{app_ns}}}{config.feature_type_name}",
@@ -452,7 +486,7 @@ def serialize_feature(
     ``FeatureCollection``.
     """
     p = prefix
-    gml_id = f"{config.id_prefix}.{feature_number}"
+    gml_id = compute_gml_id(config, row, feature_number)
     parts: list[str] = [
         f'<wfs:member><{p}:{config.feature_type_name} gml:id="{gml_id}">'
     ]
