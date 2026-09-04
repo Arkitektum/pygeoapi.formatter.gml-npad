@@ -128,7 +128,12 @@ class FeatureTypeConfig:
     """
 
     id_prefix: str = ""
-    """Prefix for ``gml:id`` attribute, e.g. ``rpomrade``."""
+    """Short identifier for the feature type, e.g. ``rpomrade``.
+
+    No longer used for ``gml:id`` — those are UUID-based, see
+    :func:`~pygeoapi_formatter_gml_npad.writer.new_gml_id`. Retained because
+    it is set on every feature-type config and read by downstream callers.
+    """
 
     derived_point_geometry: str = ""
     """GML element name for a point geometry derived from the primary

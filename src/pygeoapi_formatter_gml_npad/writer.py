@@ -1,12 +1,18 @@
 """Streaming SOSI GML writer.
 
 Generates schema-conformant SOSI GML 3.2 wrapped in a
-``wfs:FeatureCollection``. Features are serialized via:
+``gml:FeatureCollection``, one ``gml:featureMember`` per feature — the
+shape SOSI GML files from Geonorge use. Features are serialized via:
 
 - :func:`build_feature_member` — lxml-based, used for XSD validation
 - :func:`serialize_feature` — string-based, used in the hot path
 - :func:`build_feature_collection` — the top-level entry point for
   pygeoapi-formatter callers (string in, string out)
+
+``gml:id`` values are minted per document (:func:`new_gml_id`) and geometry
+fragments coming from the provider are rewritten on the way out
+(:func:`prepare_geometry_gml`): OGC URN ``srsName`` values become OGC HTTP
+URIs, and every geometry gets an id derived from its feature member's.
 
 Memory stays bounded regardless of feature count. Originally extracted
 from ``gml-export/src/gml_export/gml_writer.py``.
@@ -16,8 +22,9 @@ import gzip
 import logging
 import re
 import time
+import uuid
 from collections.abc import Iterator
-from datetime import date, datetime, timezone
+from datetime import date, datetime
 from pathlib import Path
 from xml.sax.saxutils import escape as _xml_escape
 
@@ -28,9 +35,13 @@ from .mapping import FeatureTypeConfig, NestedGroup, SchemaInfo
 logger = logging.getLogger(__name__)
 
 # Standard namespaces
-NS_WFS = "http://www.opengis.net/wfs/2.0"
 NS_GML = "http://www.opengis.net/gml/3.2"
 NS_XSI = "http://www.w3.org/2001/XMLSchema-instance"
+
+GML_SCHEMA_LOCATION = "http://schemas.opengis.net/gml/3.2.1/gml.xsd"
+"""Canonical GML 3.2.1 XSD, published in ``xsi:schemaLocation`` so a
+validator can resolve ``gml:FeatureCollection`` (defined in GML 3.2.1's
+``deprecatedTypes.xsd``, which ``gml.xsd`` includes)."""
 
 
 def _format_value(
@@ -102,7 +113,6 @@ def normalize_to_dotted(properties: dict) -> dict:
 def build_nsmap(schema: SchemaInfo) -> dict[str | None, str]:
     """Build the namespace map for the GML document."""
     return {
-        "wfs": NS_WFS,
         "gml": NS_GML,
         schema.prefix: schema.namespace,
         "xsi": NS_XSI,
@@ -110,41 +120,123 @@ def build_nsmap(schema: SchemaInfo) -> dict[str | None, str]:
 
 
 def build_schema_location(schema: SchemaInfo) -> str:
-    """Build the ``xsi:schemaLocation`` attribute value."""
-    return f"{schema.namespace} {schema.schema_location}"
+    """Build the ``xsi:schemaLocation`` attribute value.
 
-
-_NCNAME_INVALID = re.compile(r"[^A-Za-z0-9_.\-]")
-
-
-def _ncname_part(value: object) -> str:
-    """Sanitize a value into an NCName-safe fragment.
-
-    Replaces any character outside ``[A-Za-z0-9_.-]`` with ``_``. The result
-    is only ever appended after ``id_prefix``, so the NCName leading-character
-    rule (letter/underscore, never a digit) is already satisfied by the prefix.
+    Pairs both namespaces present on the root element: the application
+    schema and GML 3.2.1 (for ``gml:FeatureCollection`` itself).
     """
-    return _NCNAME_INVALID.sub("_", str(value))
+    return f"{schema.namespace} {schema.schema_location} {NS_GML} {GML_SCHEMA_LOCATION}"
 
 
-def compute_gml_id(config: FeatureTypeConfig, row: dict, feature_number: int) -> str:
-    """Build a feature's ``gml:id`` (an ``xsd:ID`` — must be an NCName).
+def new_gml_id() -> str:
+    """Mint a ``gml:id``: an underscore plus a lowercase UUID v4.
 
-    Persistent and deterministic when ``identifikasjon.lokalId`` is present:
-    ``{id_prefix}.{lokalId}``, plus ``.{versjonId}`` when versjonId is
-    non-empty. Both parts are NCName-sanitized. Falls back to the monotonic
-    ``{id_prefix}.{feature_number}`` when lokalId is missing/blank, which keeps
-    document uniqueness for identity-less rows. Assumes ``(lokalId, versjonId)``
-    is unique within a single response.
+    ``gml:id`` is an ``xsd:ID`` and therefore an NCName, which may not start
+    with a digit — hence the leading underscore. The geometries inside a
+    feature member reuse this id with a ``-{serial}`` suffix, see
+    :func:`prepare_geometry_gml`.
     """
-    lokal_id = row.get("identifikasjon.lokalId")
-    if lokal_id is None or not str(lokal_id).strip():
-        return f"{config.id_prefix}.{feature_number}"
-    gml_id = f"{config.id_prefix}.{_ncname_part(lokal_id)}"
-    versjon_id = row.get("identifikasjon.versjonId")
-    if versjon_id is not None and str(versjon_id).strip():
-        gml_id = f"{gml_id}.{_ncname_part(versjon_id)}"
-    return gml_id
+    return f"_{uuid.uuid4()}"
+
+
+# ---------------------------------------------------------------------------
+# Geometry fragment rewriting (srsName URNs → URIs, gml:id assignment)
+# ---------------------------------------------------------------------------
+
+# GML 3.2 geometry elements, i.e. the ones substitutable for
+# gml:AbstractGeometry and thus carrying a required gml:id. Ring and patch
+# elements (gml:LinearRing, gml:Ring, gml:PolygonPatch, …) and curve segments
+# are deliberately absent: they are not geometries in GML 3.2 and take no
+# gml:id.
+GEOMETRY_ELEMENTS = frozenset(
+    {
+        "Point",
+        "LineString",
+        "Curve",
+        "OrientableCurve",
+        "CompositeCurve",
+        "Polygon",
+        "Surface",
+        "OrientableSurface",
+        "CompositeSurface",
+        "PolyhedralSurface",
+        "TriangulatedSurface",
+        "Tin",
+        "Solid",
+        "CompositeSolid",
+        "MultiPoint",
+        "MultiCurve",
+        "MultiSurface",
+        "MultiSolid",
+        "MultiGeometry",
+    }
+)
+
+# An opening tag: 1=prefix (with colon, may be empty), 2=local name,
+# 3=attributes, 4=self-closing slash. Closing tags don't match ('/' is not a
+# valid name start). Good enough for the machine-generated ST_AsGML fragments
+# the provider hands us — no comments, no CDATA, no '>' inside attributes.
+_OPEN_TAG_RE = re.compile(r"<((?:[A-Za-z_][\w.\-]*:)?)([A-Za-z_][\w.\-]*)([^>]*?)(/?)>")
+
+_SRSNAME_RE = re.compile(r'srsName="([^"]*)"')
+_GML_ID_ATTR_RE = re.compile(r'\s+gml:id="[^"]*"')
+
+# urn:ogc:def:{objectType}:{authority}:{version}:{code}
+_OGC_URN_RE = re.compile(r"^urn:ogc:def:([^:]+):([^:]*):([^:]*):(.+)$")
+
+
+def urn_to_uri(value: str) -> str:
+    """Convert an OGC URN identifier to its OGC HTTP URI form.
+
+    ``urn:ogc:def:crs:EPSG::25833`` →
+    ``http://www.opengis.net/def/crs/EPSG/0/25833``, and
+    ``urn:ogc:def:crs:OGC::CRS84`` →
+    ``http://www.opengis.net/def/crs/OGC/0/CRS84``. An empty URN version
+    segment becomes ``0``, the "unversioned" URI segment.
+
+    Anything that isn't a single OGC URN — an http(s) URI that is already in
+    the target form, a compound-CRS URN, an EPSG shorthand — is returned
+    unchanged rather than guessed at.
+    """
+    match = _OGC_URN_RE.match(value)
+    if match is None:
+        return value
+    object_type, authority, version, code = match.groups()
+    return (
+        f"http://www.opengis.net/def/{object_type}/{authority}/{version or '0'}/{code}"
+    )
+
+
+def prepare_geometry_gml(
+    geom_gml: str, id_base: str, serial: int = 0
+) -> tuple[str, int]:
+    """Rewrite a provider-rendered GML geometry fragment for output.
+
+    Two passes in one, over every opening tag:
+
+    - ``srsName`` URNs are converted to OGC URIs (:func:`urn_to_uri`).
+    - every geometry element gets ``gml:id="{id_base}-{serial}"``, numbered in
+      document order from ``serial``, replacing any id the provider set. The
+      outermost geometry takes ``-0`` and nested sub-geometries (a
+      ``gml:MultiSurface``'s member polygons, say) take the numbers after it.
+
+    Returns the rewritten fragment and the next unused serial, so that a
+    feature member's remaining geometries continue the same numbering.
+    """
+
+    def replace_tag(match: re.Match) -> str:
+        nonlocal serial
+        prefix, local, attrs, slash = match.groups()
+        attrs = _SRSNAME_RE.sub(
+            lambda m: f'srsName="{urn_to_uri(m.group(1))}"',
+            attrs,
+        )
+        if local in GEOMETRY_ELEMENTS:
+            attrs = f'{_GML_ID_ATTR_RE.sub("", attrs)} gml:id="{id_base}-{serial}"'
+            serial += 1
+        return f"<{prefix}{local}{attrs}{slash}>"
+
+    return _OPEN_TAG_RE.sub(replace_tag, geom_gml), serial
 
 
 # ---------------------------------------------------------------------------
@@ -156,22 +248,22 @@ def build_feature_member(
     row: dict,
     config: FeatureTypeConfig,
     app_ns: str,
-    feature_number: int,
     nsmap: dict[str | None, str] | None = None,
 ) -> etree._Element:
-    """Build a ``wfs:member`` element containing one SOSI GML feature.
+    """Build a ``gml:featureMember`` element containing one SOSI GML feature.
 
     Used for XSD validation of the first feature per view. The export
     hot path uses :func:`serialize_feature` instead.
     """
-    member = etree.Element(f"{{{NS_WFS}}}member", nsmap=nsmap)
+    member = etree.Element(f"{{{NS_GML}}}featureMember", nsmap=nsmap)
 
-    gml_id = compute_gml_id(config, row, feature_number)
+    gml_id = new_gml_id()
     feature = etree.SubElement(
         member,
         f"{{{app_ns}}}{config.feature_type_name}",
         attrib={f"{{{NS_GML}}}id": gml_id},
     )
+    serial = 0
 
     if config.element_order:
         nested_by_name = {g.gml_parent: g for g in config.nested_groups}
@@ -181,9 +273,11 @@ def build_feature_member(
 
         for gml_name in config.element_order:
             if gml_name == config.geometry_gml_name:
-                _write_geometry(feature, row, config, app_ns, gml_id)
+                serial = _write_geometry(feature, row, config, app_ns, gml_id, serial)
             elif gml_name == config.derived_point_geometry:
-                _write_derived_point(feature, row, gml_name, app_ns, gml_id)
+                serial = _write_derived_point(
+                    feature, row, gml_name, app_ns, gml_id, serial
+                )
             elif gml_name in nested_by_name:
                 _write_nested_group(feature, nested_by_name[gml_name], row, app_ns)
             elif gml_name in simple_by_gml_name:
@@ -204,7 +298,7 @@ def build_feature_member(
             if value is not None:
                 prop = etree.SubElement(feature, f"{{{app_ns}}}{gml_name}")
                 prop.text = _format_value(value)
-        _write_geometry(feature, row, config, app_ns, gml_id)
+        _write_geometry(feature, row, config, app_ns, gml_id, serial)
 
     return member
 
@@ -215,24 +309,29 @@ def _write_geometry(
     config: FeatureTypeConfig,
     app_ns: str,
     gml_id: str,
-) -> None:
-    """Write the geometry element from ST_AsGML output."""
+    serial: int,
+) -> int:
+    """Write the geometry element from ST_AsGML output.
+
+    Returns the next unused geometry serial.
+    """
     geom_gml = row.get("_geometry_gml")
     if not geom_gml:
-        return
+        return serial
 
     geom_wrapper = etree.SubElement(parent, f"{{{app_ns}}}{config.geometry_gml_name}")
+    prepared, next_serial = prepare_geometry_gml(geom_gml, gml_id, serial)
     try:
-        wrapped = f'<_g xmlns:gml="{NS_GML}">{geom_gml}</_g>'
+        wrapped = f'<_g xmlns:gml="{NS_GML}">{prepared}</_g>'
         dummy = etree.fromstring(wrapped.encode("utf-8"))
-        geom_elem = dummy[0]
-        geom_elem.set(f"{{{NS_GML}}}id", f"{gml_id}.geom")
-        geom_wrapper.append(geom_elem)
+        geom_wrapper.append(dummy[0])
     except etree.XMLSyntaxError:
         logger.warning(
             f"Invalid GML geometry for {config.view_name} "
             f"objid={row.get('objid')}, skipping geometry"
         )
+        return serial
+    return next_serial
 
 
 def _write_derived_point(
@@ -241,24 +340,29 @@ def _write_derived_point(
     gml_name: str,
     app_ns: str,
     gml_id: str,
-) -> None:
-    """Write a point geometry derived from the primary geometry."""
+    serial: int,
+) -> int:
+    """Write a point geometry derived from the primary geometry.
+
+    Returns the next unused geometry serial.
+    """
     geom_gml = row.get("_derived_point_gml")
     if not geom_gml:
-        return
+        return serial
 
     wrapper = etree.SubElement(parent, f"{{{app_ns}}}{gml_name}")
+    prepared, next_serial = prepare_geometry_gml(geom_gml, gml_id, serial)
     try:
-        wrapped = f'<_g xmlns:gml="{NS_GML}">{geom_gml}</_g>'
+        wrapped = f'<_g xmlns:gml="{NS_GML}">{prepared}</_g>'
         dummy = etree.fromstring(wrapped.encode("utf-8"))
-        geom_elem = dummy[0]
-        geom_elem.set(f"{{{NS_GML}}}id", f"{gml_id}.{gml_name}")
-        wrapper.append(geom_elem)
+        wrapper.append(dummy[0])
     except etree.XMLSyntaxError:
         logger.warning(
             f"Invalid derived point GML for objid={row.get('objid')}, "
             f"skipping {gml_name}"
         )
+        return serial
+    return next_serial
 
 
 def _write_nested_group(
@@ -346,12 +450,6 @@ def _write_repeating_nested_group(
 # ---------------------------------------------------------------------------
 
 
-def _inject_gml_id(geom_gml: str, gml_id: str) -> str:
-    """Inject a ``gml:id`` attribute into the first opening tag of a GML fragment."""
-    idx = geom_gml.index(">")
-    return f'{geom_gml[:idx]} gml:id="{gml_id}"{geom_gml[idx:]}'
-
-
 def _fmt(value: object, group: NestedGroup, db_col: str) -> str:
     """Format + XML-escape a nested-group column value."""
     return _xml_escape(
@@ -370,17 +468,16 @@ def _append_geometry_str(
     geometry_gml_name: str,
     prefix: str,
     gml_id: str,
-) -> None:
+    serial: int,
+) -> int:
     geom_gml = row.get("_geometry_gml")
     if not geom_gml:
-        return
-    try:
-        injected = _inject_gml_id(geom_gml, f"{gml_id}.geom")
-        parts.append(
-            f"<{prefix}:{geometry_gml_name}>{injected}</{prefix}:{geometry_gml_name}>"
-        )
-    except (ValueError, IndexError):
-        pass
+        return serial
+    prepared, next_serial = prepare_geometry_gml(geom_gml, gml_id, serial)
+    parts.append(
+        f"<{prefix}:{geometry_gml_name}>{prepared}</{prefix}:{geometry_gml_name}>"
+    )
+    return next_serial
 
 
 def _append_derived_point_str(
@@ -389,15 +486,14 @@ def _append_derived_point_str(
     gml_name: str,
     prefix: str,
     gml_id: str,
-) -> None:
+    serial: int,
+) -> int:
     geom_gml = row.get("_derived_point_gml")
     if not geom_gml:
-        return
-    try:
-        injected = _inject_gml_id(geom_gml, f"{gml_id}.{gml_name}")
-        parts.append(f"<{prefix}:{gml_name}>{injected}</{prefix}:{gml_name}>")
-    except (ValueError, IndexError):
-        pass
+        return serial
+    prepared, next_serial = prepare_geometry_gml(geom_gml, gml_id, serial)
+    parts.append(f"<{prefix}:{gml_name}>{prepared}</{prefix}:{gml_name}>")
+    return next_serial
 
 
 def _append_nested_group_str(
@@ -478,7 +574,6 @@ def serialize_feature(
     row: dict,
     config: FeatureTypeConfig,
     prefix: str,
-    feature_number: int,
 ) -> str:
     """Serialize one feature to an XML string (no lxml).
 
@@ -486,10 +581,11 @@ def serialize_feature(
     ``FeatureCollection``.
     """
     p = prefix
-    gml_id = compute_gml_id(config, row, feature_number)
+    gml_id = new_gml_id()
     parts: list[str] = [
-        f'<wfs:member><{p}:{config.feature_type_name} gml:id="{gml_id}">'
+        f'<gml:featureMember><{p}:{config.feature_type_name} gml:id="{gml_id}">'
     ]
+    serial = 0
 
     if config.element_order:
         nested_by_name = {g.gml_parent: g for g in config.nested_groups}
@@ -497,9 +593,13 @@ def serialize_feature(
 
         for gml_name in config.element_order:
             if gml_name == config.geometry_gml_name:
-                _append_geometry_str(parts, row, config.geometry_gml_name, p, gml_id)
+                serial = _append_geometry_str(
+                    parts, row, config.geometry_gml_name, p, gml_id, serial
+                )
             elif gml_name == config.derived_point_geometry:
-                _append_derived_point_str(parts, row, gml_name, p, gml_id)
+                serial = _append_derived_point_str(
+                    parts, row, gml_name, p, gml_id, serial
+                )
             elif gml_name in nested_by_name:
                 _append_nested_group_str(parts, nested_by_name[gml_name], row, p)
             elif gml_name in simple_by_gml:
@@ -522,9 +622,9 @@ def serialize_feature(
                 parts.append(
                     f"<{p}:{gml_name}>{_xml_escape(_format_value(value))}</{p}:{gml_name}>"
                 )
-        _append_geometry_str(parts, row, config.geometry_gml_name, p, gml_id)
+        _append_geometry_str(parts, row, config.geometry_gml_name, p, gml_id, serial)
 
-    parts.append(f"</{p}:{config.feature_type_name}></wfs:member>")
+    parts.append(f"</{p}:{config.feature_type_name}></gml:featureMember>")
     return "".join(parts)
 
 
@@ -536,17 +636,20 @@ def serialize_feature(
 def build_xml_header(
     schema: SchemaInfo,
     nsmap: dict[str | None, str],
-    number_returned: int | str = "unknown",
-    number_matched: int | str = "unknown",
+    collection_id: str | None = None,
 ) -> str:
-    """Build the XML declaration and opening ``wfs:FeatureCollection`` tag.
+    """Build the XML declaration and opening ``gml:FeatureCollection`` tag.
 
-    ``number_returned`` defaults to ``"unknown"``; pygeoapi callers pass
-    the actual feature count. ``number_matched`` stays ``"unknown"``
-    unless the caller knows the underlying collection size.
+    ``collection_id`` becomes the required ``gml:id`` on the collection
+    element; it defaults to a freshly minted one (:func:`new_gml_id`).
+
+    There are deliberately no ``timeStamp`` / ``numberMatched`` /
+    ``numberReturned`` attributes: those are WFS response metadata and are
+    not permitted on ``gml:FeatureCollection``.
     """
-    timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     schema_location = build_schema_location(schema)
+    if collection_id is None:
+        collection_id = new_gml_id()
 
     ns_decls = []
     for prefix, uri in nsmap.items():
@@ -557,15 +660,13 @@ def build_xml_header(
 
     return (
         '<?xml version="1.0" encoding="utf-8"?>\n'
-        f"<wfs:FeatureCollection {' '.join(ns_decls)}"
+        f"<gml:FeatureCollection {' '.join(ns_decls)}"
         f' xsi:schemaLocation="{schema_location}"'
-        f' timeStamp="{timestamp}"'
-        f' numberMatched="{number_matched}"'
-        f' numberReturned="{number_returned}">'
+        f' gml:id="{collection_id}">'
     )
 
 
-XML_FOOTER = "</wfs:FeatureCollection>"
+XML_FOOTER = "</gml:FeatureCollection>"
 
 
 def build_feature_collection(
@@ -583,9 +684,9 @@ def build_feature_collection(
     nsmap = build_nsmap(schema)
     prefix = schema.prefix
 
-    parts: list[str] = [build_xml_header(schema, nsmap, number_returned=len(rows))]
-    for i, row in enumerate(rows, start=1):
-        parts.append(serialize_feature(row, config, prefix, i))
+    parts: list[str] = [build_xml_header(schema, nsmap)]
+    for row in rows:
+        parts.append(serialize_feature(row, config, prefix))
     parts.append(XML_FOOTER)
     return "".join(parts)
 
@@ -622,7 +723,7 @@ def export_view_to_gml(
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     with gzip.open(output_path, "wb", compresslevel=1) as gz:
-        gz.write(build_xml_header(schema, nsmap, number_returned=0).encode("utf-8"))
+        gz.write(build_xml_header(schema, nsmap).encode("utf-8"))
 
         while True:
             t0 = time.monotonic()
@@ -635,11 +736,7 @@ def export_view_to_gml(
             t1 = time.monotonic()
             for row in batch:
                 feature_count += 1
-                gz.write(
-                    serialize_feature(row, config, prefix, feature_count).encode(
-                        "utf-8"
-                    )
-                )
+                gz.write(serialize_feature(row, config, prefix).encode("utf-8"))
             write_time += time.monotonic() - t1
 
         gz.write(XML_FOOTER.encode("utf-8"))

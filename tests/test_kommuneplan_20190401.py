@@ -7,6 +7,7 @@ from pygeoapi_formatter_gml_npad.kommuneplan_20190401 import (
     SCHEMA_INFO,
     KommuneplanFormatter,
 )
+from tests.helpers import gml_ids
 
 
 def test_default_identifiers():
@@ -109,10 +110,14 @@ def test_write_serializes_minimal_grense_feature():
     out = fmt.write({}, {"type": "FeatureCollection", "features": [feature]})
 
     assert "<app:KpGrense " in out
-    assert 'gml:id="kpgrense.kp-grense-abc.1"' in out
     assert "<app:lokalId>kp-grense-abc</app:lokalId>" in out
     assert "<app:grense><gml:LineString" in out
-    assert 'gml:id="kpgrense.kp-grense-abc.1.geom"' in out
+    # srsName URN rewritten to its OGC URI form
+    assert 'srsName="http://www.opengis.net/def/crs/EPSG/0/25833"' in out
+
+    collection_id, feature_id, geometry_id = gml_ids(out)
+    assert collection_id != feature_id
+    assert geometry_id == f"{feature_id}-0"
 
 
 def test_feature_types_by_view_index():
@@ -139,9 +144,9 @@ def test_write_empty_collection_skips_validation():
     out = fmt.write({}, {"type": "FeatureCollection", "features": []})
 
     assert out.startswith('<?xml version="1.0" encoding="utf-8"?>')
-    assert "<wfs:FeatureCollection " in out
-    assert 'numberReturned="0"' in out
-    assert "</wfs:FeatureCollection>" in out
+    assert "<gml:FeatureCollection " in out
+    assert "<gml:featureMember>" not in out
+    assert "</gml:FeatureCollection>" in out
     assert KommuneplanFormatter.SCHEMA_NAMESPACE in out
 
 
@@ -158,8 +163,7 @@ def test_write_serializes_minimal_feature():
     }
     out = fmt.write({}, {"type": "FeatureCollection", "features": [feature]})
 
-    assert 'numberReturned="1"' in out
+    assert out.count("<gml:featureMember>") == 1
     assert "<app:KpOmråde " in out
-    assert 'gml:id="kpomrade.kp-xyz.1"' in out
     assert "<app:lokalId>kp-xyz</app:lokalId>" in out
     assert "<app:plantype>20</app:plantype>" in out

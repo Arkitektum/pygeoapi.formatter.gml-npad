@@ -21,6 +21,13 @@ combination; shared GML mechanics live in
 | Reguleringsplan | 20190401   | `ReguleringsplanFormatter` | `pygeoapi_formatter_gml_npad.reguleringsplan_20190401`   |
 | Kommuneplan     | 20190401   | `KommuneplanFormatter`     | `pygeoapi_formatter_gml_npad.kommuneplan_20190401`       |
 
+The response is a plain **`gml:FeatureCollection`** with one
+`gml:featureMember` per feature — a GML *file*, the shape SOSI GML from
+Geonorge takes, not a WFS `GetFeature` response. There are consequently no
+`timeStamp` / `numberMatched` / `numberReturned` attributes: those are WFS
+response metadata, which `gml:FeatureCollection` does not allow. Feature
+counts come from the OGC API `?f=json` view instead.
+
 Defaults for every formatter: `f='gml'`, `mimetype='application/gml+xml'`,
 `extension='gml'`, `attachment=False` (served inline so browsers render the
 GML; set `attachment: true` on the formatter entry to download as a file).
@@ -227,16 +234,24 @@ Specifically:
   only for `RpPåskrift` (the XSD demands a separate point alongside
   the primary line geometry). The provider computes it as
   "start point for lines, passthrough for points" via `ST_PointN`.
-- **`objid` is ignored** if present. The formatter derives a persistent,
-  deterministic `gml:id` from the feature type's `id_prefix` plus the
-  feature's identity: `{id_prefix}.{identifikasjon.lokalId}` (with
-  `.{identifikasjon.versjonId}` appended when versjonId is non-empty). Both
-  identity parts are sanitized to a valid NCName (`gml:id` is `xsd:ID` —
-  no colons/slashes/spaces; characters outside `[A-Za-z0-9_.-]` become
-  `_`). When `lokalId` is missing/blank the formatter falls back to a
-  monotonic counter (`{id_prefix}.{n}`) to keep ids unique within the
-  document. The geometry element's `gml:id` is the feature id suffixed
-  with `.geom`.
+- **`objid` is ignored** if present, and so is any `gml:id` the provider
+  puts on a geometry. The formatter mints every `gml:id` itself as an
+  underscore plus a lowercase UUID v4 —
+  `_2078a0f7-4c5c-403b-a4e8-f57bb928bbbd` — on the `gml:FeatureCollection`
+  and on each feature. (The leading underscore is what makes it a valid
+  NCName; `gml:id` is `xsd:ID`.) Geometries reuse their feature's id with
+  a `-{serial}` suffix numbered from 0 in document order, so a feature
+  whose geometry has sub-geometries gets
+  `…-f57bb928bbbd-0`, `…-1`, `…-2` and so on; a `_derived_point_gml`
+  continues the same numbering. Ids are therefore **not** stable across
+  requests — consumers should key on `identifikasjon.lokalId`.
+- **`srsName` URNs are rewritten to OGC HTTP URIs** on the way out:
+  `urn:ogc:def:crs:EPSG::25833` →
+  `http://www.opengis.net/def/crs/EPSG/0/25833`, and
+  `urn:ogc:def:crs:OGC::CRS84` →
+  `http://www.opengis.net/def/crs/OGC/0/CRS84` (an empty URN version
+  segment becomes `0`). Values that aren't a single OGC URN are passed
+  through untouched.
 
 The Reguleringsplan subpackage also hosts the **Rb\*** and
 **PblMidlByggAnleggOmråde** feature types — they share the

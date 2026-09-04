@@ -134,10 +134,8 @@ class _GMLBase(BaseFormatter):
                 )
 
         nsmap = build_nsmap(self.schema_info)
-        parts: list[str] = [
-            build_xml_header(self.schema_info, nsmap, number_returned=len(rows))
-        ]
-        for i, row in enumerate(rows, start=1):
-            parts.append(serialize_feature(row, config, self.SCHEMA_PREFIX, i))
+        parts: list[str] = [build_xml_header(self.schema_info, nsmap)]
+        for row in rows:
+            parts.append(serialize_feature(row, config, self.SCHEMA_PREFIX))
         parts.append(XML_FOOTER)
         return "".join(parts)

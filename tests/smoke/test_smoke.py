@@ -30,6 +30,7 @@ from pygeoapi_formatter_gml_npad.kommuneplan_20190401 import (  # noqa: E402
 from pygeoapi_formatter_gml_npad.reguleringsplan_20190401 import (  # noqa: E402
     ReguleringsplanFormatter,
 )
+from tests.helpers import gml_ids  # noqa: E402
 
 
 def _query_features(provider_def: dict) -> dict:
@@ -91,10 +92,13 @@ def test_provider_injects_geometry_gml(rp_provider_def):
 
 def _assert_envelope(gml: str, schema_namespace: str, feature_count: int) -> None:
     assert gml.startswith('<?xml version="1.0" encoding="utf-8"?>')
-    assert "<wfs:FeatureCollection " in gml
-    assert f'numberReturned="{feature_count}"' in gml
+    assert "<gml:FeatureCollection " in gml
+    assert gml.count("<gml:featureMember>") == feature_count
     assert schema_namespace in gml  # in xsi:schemaLocation
-    assert "</wfs:FeatureCollection>" in gml
+    assert "</gml:FeatureCollection>" in gml
+    # gml:id is required on gml:FeatureCollection, and every id in the
+    # document follows the '_' + UUID v4 scheme.
+    assert len(gml_ids(gml)) == gml.count("gml:id=")
 
 
 def test_rp_full_chain_serializes_to_gml(rp_provider_def):
@@ -123,15 +127,16 @@ def test_rp_full_chain_serializes_to_gml(rp_provider_def):
     # Simple property
     assert "<app:plantype>35</app:plantype>" in gml
 
-    # gml:id derived from id_prefix + identifikasjon.lokalId + versjonId
-    # (persistent/deterministic), not from objid or a counter
-    assert 'gml:id="rpomrade.rp-smoke-001.1"' in gml
-
     # Geometry: provider-rendered ST_AsGML passed through into the
     # XSD-ordered <app:område> wrapper, with a gml:id injected by the writer
+    # and the ST_AsGML srsName URN rewritten to its OGC URI form
     assert "<app:område><gml:Polygon" in gml
-    assert 'gml:id="rpomrade.rp-smoke-001.1.geom"' in gml
+    assert 'srsName="http://www.opengis.net/def/crs/EPSG/0/25833"' in gml
+    assert "urn:ogc:def" not in gml
     assert "</gml:Polygon></app:område>" in gml
+
+    _, feature_id, geometry_id = gml_ids(gml)
+    assert geometry_id == f"{feature_id}-0"
 
 
 def test_kp_full_chain_serializes_to_gml(kp_provider_def):
@@ -146,11 +151,12 @@ def test_kp_full_chain_serializes_to_gml(kp_provider_def):
     assert "<app:lokalId>kp-smoke-001</app:lokalId>" in gml
     assert "<app:kommunenummer>0301</app:kommunenummer>" in gml
     assert "<app:plantype>20</app:plantype>" in gml
-    assert 'gml:id="kpomrade.kp-smoke-001.1"' in gml
 
     # KP: DB geom column is `geometri`, GML element is `område`
     assert "<app:område><gml:Polygon" in gml
-    assert 'gml:id="kpomrade.kp-smoke-001.1.geom"' in gml
+
+    _, feature_id, geometry_id = gml_ids(gml)
+    assert geometry_id == f"{feature_id}-0"
 
 
 def test_rp_grense_full_chain_validates(rpformalgrense_provider_def):
@@ -167,7 +173,6 @@ def test_rp_grense_full_chain_validates(rpformalgrense_provider_def):
     _assert_envelope(gml, ReguleringsplanFormatter.SCHEMA_NAMESPACE, feature_count=1)
 
     assert "<app:RpFormålGrense " in gml
-    assert 'gml:id="rpformalgrense.rpfg-smoke-001.1"' in gml
     assert "<app:lokalId>rpfg-smoke-001</app:lokalId>" in gml
 
     # kvalitet nested group (grense types carry it; no arealplanId)
@@ -182,4 +187,8 @@ def test_rp_grense_full_chain_validates(rpformalgrense_provider_def):
     # produces.
     assert "<app:grense><gml:Curve" in gml
     assert "<gml:LineStringSegment>" in gml
-    assert 'gml:id="rpformalgrense.rpfg-smoke-001.1.geom"' in gml
+
+    # gml:Curve is a geometry and gets the id; gml:LineStringSegment is a
+    # curve segment, not a geometry, so it takes no gml:id.
+    _, feature_id, geometry_id = gml_ids(gml)
+    assert geometry_id == f"{feature_id}-0"

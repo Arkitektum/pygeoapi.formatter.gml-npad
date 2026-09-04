@@ -9,7 +9,10 @@ from pygeoapi_formatter_gml_npad.reguleringsplan_20190401 import (
 )
 from pygeoapi_formatter_gml_npad.writer import (
     normalize_to_dotted,
+    prepare_geometry_gml,
+    urn_to_uri,
 )
+from tests.helpers import GML_ID_RE, gml_ids
 
 
 def test_default_identifiers():
@@ -125,10 +128,14 @@ def test_write_serializes_minimal_grense_feature():
     out = fmt.write({}, {"type": "FeatureCollection", "features": [feature]})
 
     assert "<app:RpFormålGrense " in out
-    assert 'gml:id="rpformalgrense.grense-abc.1"' in out
     assert "<app:lokalId>grense-abc</app:lokalId>" in out
     assert "<app:grense><gml:LineString" in out
-    assert 'gml:id="rpformalgrense.grense-abc.1.geom"' in out
+
+    # Collection id, feature id, geometry id — the geometry's is the
+    # feature's plus '-0'.
+    collection_id, feature_id, geometry_id = gml_ids(out)
+    assert collection_id != feature_id
+    assert geometry_id == f"{feature_id}-0"
 
 
 def test_feature_types_by_view_index():
@@ -160,9 +167,9 @@ def test_write_empty_collection_skips_validation():
     out = fmt.write({}, {"type": "FeatureCollection", "features": []})
 
     assert out.startswith('<?xml version="1.0" encoding="utf-8"?>')
-    assert "<wfs:FeatureCollection " in out
-    assert 'numberReturned="0"' in out
-    assert "</wfs:FeatureCollection>" in out
+    assert "<gml:FeatureCollection " in out
+    assert "<gml:featureMember>" not in out
+    assert "</gml:FeatureCollection>" in out
     assert ReguleringsplanFormatter.SCHEMA_NAMESPACE in out
 
 
@@ -180,9 +187,8 @@ def test_write_serializes_minimal_feature():
     }
     out = fmt.write({}, {"type": "FeatureCollection", "features": [feature]})
 
-    assert 'numberReturned="1"' in out
+    assert out.count("<gml:featureMember>") == 1
     assert "<app:RpOmråde " in out
-    assert 'gml:id="rpomrade.abc-123.1"' in out
     assert "<app:lokalId>abc-123</app:lokalId>" in out
     assert "<app:plantype>35</app:plantype>" in out
 
@@ -257,8 +263,9 @@ def test_normalize_to_dotted_is_identity_on_dotted_shape():
 
 def test_write_accepts_nested_and_dotted_shapes_identically():
     """A collection on ``property_shape: nested`` (clean GeoJSON) and one on
-    ``dotted`` must serialize byte-identical GML — the contract that lets a
-    single collection serve both ?f=json and ?f=gml."""
+    ``dotted`` must serialize identical GML — the contract that lets a single
+    collection serve both ?f=json and ?f=gml. Identical up to the freshly
+    minted ``gml:id`` values, which differ per document by design."""
     fmt = ReguleringsplanFormatter(
         {"feature_type": "RpFormålGrense", "validate": False}
     )
@@ -299,60 +306,130 @@ def test_write_accepts_nested_and_dotted_shapes_identically():
         {}, {"type": "FeatureCollection", "features": [nested_feature]}
     )
 
-    assert nested_out == dotted_out
+    assert GML_ID_RE.sub("gml:id=ID", nested_out) == GML_ID_RE.sub(
+        "gml:id=ID", dotted_out
+    )
     assert "<app:grense><gml:LineString" in nested_out
     assert "<app:målemetode>24</app:målemetode>" in nested_out
 
 
-def test_gml_id_uses_lokalid_and_versjonid():
-    # Persistent gml:id = {id_prefix}.{lokalId}.{versjonId}.
+def test_every_gml_id_is_underscore_plus_uuid4():
+    """Collection, feature and geometry ids are all '_' + lowercase UUID v4
+    (geometries with a '-{serial}' suffix), and unique within the document."""
     fmt = ReguleringsplanFormatter({"feature_type": "RpOmråde", "validate": False})
     feature = {
         "type": "Feature",
         "properties": {
             "identifikasjon.lokalId": "abc-123",
-            "identifikasjon.versjonId": "7",
+            "_geometry_gml": '<gml:Polygon srsName="urn:ogc:def:crs:EPSG::25833"/>',
+        },
+    }
+    out = fmt.write({}, {"type": "FeatureCollection", "features": [feature, feature]})
+
+    # 2 features × (feature id + geometry id) + the collection id
+    ids = gml_ids(out)
+    assert len(ids) == 5
+    assert len(set(ids)) == 5
+    # No id left over from any other scheme
+    assert out.count("gml:id=") == 5
+
+
+def test_geometry_ids_are_serial_within_the_feature_member():
+    """Every geometry inside one feature member shares the feature's id with
+    a '-{serial}' suffix, numbered from 0 in document order — sub-geometries
+    included."""
+    fmt = ReguleringsplanFormatter({"feature_type": "RpPåskrift", "validate": False})
+    feature = {
+        "type": "Feature",
+        "properties": {
+            "identifikasjon.lokalId": "abc-123",
+            "_geometry_gml": (
+                "<gml:MultiCurve><gml:curveMember><gml:LineString>"
+                "<gml:posList>0 0 1 1</gml:posList>"
+                "</gml:LineString></gml:curveMember></gml:MultiCurve>"
+            ),
+            # RpPåskrift also carries a derived point (objektposisjon), which
+            # continues the same numbering.
+            "_derived_point_gml": "<gml:Point><gml:pos>0 0</gml:pos></gml:Point>",
         },
     }
     out = fmt.write({}, {"type": "FeatureCollection", "features": [feature]})
 
-    assert 'gml:id="rpomrade.abc-123.7"' in out
+    _, feature_id, *geometry_ids = gml_ids(out)
+    assert geometry_ids == [
+        f"{feature_id}-0",  # gml:MultiCurve
+        f"{feature_id}-1",  # its member gml:LineString
+        f"{feature_id}-2",  # gml:Point (objektposisjon)
+    ]
 
 
-def test_gml_id_omits_versjonid_when_blank():
-    # Blank/missing versjonId → {id_prefix}.{lokalId} (no trailing dot-part).
+def test_srs_name_urns_are_rewritten_to_uris():
     fmt = ReguleringsplanFormatter({"feature_type": "RpOmråde", "validate": False})
     feature = {
         "type": "Feature",
         "properties": {
             "identifikasjon.lokalId": "abc-123",
-            "identifikasjon.versjonId": "",
+            "_geometry_gml": (
+                '<gml:MultiSurface srsName="urn:ogc:def:crs:EPSG::25833">'
+                '<gml:surfaceMember><gml:Polygon srsName="urn:ogc:def:crs:OGC::CRS84">'
+                "<gml:exterior><gml:LinearRing/></gml:exterior>"
+                "</gml:Polygon></gml:surfaceMember></gml:MultiSurface>"
+            ),
         },
     }
     out = fmt.write({}, {"type": "FeatureCollection", "features": [feature]})
 
-    assert 'gml:id="rpomrade.abc-123"' in out
+    assert "urn:ogc:def" not in out
+    assert 'srsName="http://www.opengis.net/def/crs/EPSG/0/25833"' in out
+    assert 'srsName="http://www.opengis.net/def/crs/OGC/0/CRS84"' in out
 
 
-def test_gml_id_falls_back_to_counter_without_lokalid():
-    # No lokalId → monotonic counter keeps document uniqueness.
-    fmt = ReguleringsplanFormatter({"feature_type": "RpOmråde", "validate": False})
-    feature = {"type": "Feature", "properties": {"plantype": "35"}}
-    out = fmt.write({}, {"type": "FeatureCollection", "features": [feature]})
+@pytest.mark.parametrize(
+    ("urn", "expected"),
+    [
+        (
+            "urn:ogc:def:crs:EPSG::25833",
+            "http://www.opengis.net/def/crs/EPSG/0/25833",
+        ),
+        (
+            "urn:ogc:def:crs:OGC::CRS84",
+            "http://www.opengis.net/def/crs/OGC/0/CRS84",
+        ),
+        # A versioned URN keeps its version instead of getting the '0' default
+        (
+            "urn:ogc:def:crs:EPSG:9.9.1:4326",
+            "http://www.opengis.net/def/crs/EPSG/9.9.1/4326",
+        ),
+        # Already a URI, or not an OGC URN at all → untouched
+        (
+            "http://www.opengis.net/def/crs/EPSG/0/25833",
+            "http://www.opengis.net/def/crs/EPSG/0/25833",
+        ),
+        ("EPSG:25833", "EPSG:25833"),
+    ],
+)
+def test_urn_to_uri(urn, expected):
+    assert urn_to_uri(urn) == expected
 
-    assert 'gml:id="rpomrade.1"' in out
+
+def test_prepare_geometry_gml_skips_non_geometry_elements():
+    """Rings, patches and property elements are not geometries in GML 3.2 and
+    take no gml:id; the serial counter must not spend numbers on them."""
+    fragment = (
+        "<gml:Polygon><gml:exterior><gml:LinearRing>"
+        "<gml:posList>0 0 1 0 1 1 0 0</gml:posList>"
+        "</gml:LinearRing></gml:exterior></gml:Polygon>"
+    )
+    prepared, next_serial = prepare_geometry_gml(fragment, "_id", 0)
+
+    assert prepared.count("gml:id=") == 1
+    assert '<gml:Polygon gml:id="_id-0">' in prepared
+    assert next_serial == 1
 
 
-def test_gml_id_sanitizes_non_ncname_characters():
-    # gml:id is xsd:ID (NCName) — chars outside [A-Za-z0-9_.-] become '_'.
-    fmt = ReguleringsplanFormatter({"feature_type": "RpOmråde", "validate": False})
-    feature = {
-        "type": "Feature",
-        "properties": {
-            "identifikasjon.lokalId": "urn:x/9 9",
-            "identifikasjon.versjonId": "1",
-        },
-    }
-    out = fmt.write({}, {"type": "FeatureCollection", "features": [feature]})
+def test_prepare_geometry_gml_replaces_provider_supplied_ids():
+    fragment = '<gml:Point gml:id="from-provider"><gml:pos>0 0</gml:pos></gml:Point>'
+    prepared, next_serial = prepare_geometry_gml(fragment, "_id", 3)
 
-    assert 'gml:id="rpomrade.urn_x_9_9.1"' in out
+    assert prepared == '<gml:Point gml:id="_id-3"><gml:pos>0 0</gml:pos></gml:Point>'
+    assert next_serial == 4

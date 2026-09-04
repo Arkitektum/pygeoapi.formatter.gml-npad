@@ -126,11 +126,11 @@ def validate_first_feature(
     """Validate a single feature built from a row against the XSD.
 
     Builds a feature-member element and validates the inner feature
-    element (not the ``wfs:member`` wrapper) against the schema.
+    element (not the ``gml:featureMember`` wrapper) against the schema.
 
     Returns a list of validation error messages. Empty if valid.
     """
-    member = build_feature_member(row, config, schema_info.namespace, feature_number=0)
+    member = build_feature_member(row, config, schema_info.namespace)
     feature = member[0]
 
     if xsd_schema.validate(feature):
