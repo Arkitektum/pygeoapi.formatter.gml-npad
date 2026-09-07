@@ -69,7 +69,7 @@ class _GMLBase(BaseFormatter):
         # response downloads as a file instead.
         attachment = bool(formatter_def.get("attachment", False))
 
-        super().__init__({"name": self._NAME, "attachment": attachment})
+        super().__init__({"name": f, "attachment": attachment})
         self.f = f
         self.mimetype = mimetype
         self.extension = "gml"
